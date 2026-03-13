@@ -2,7 +2,7 @@ import { readFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join, resolve } from "node:path";
 import { config as loadEnv } from "dotenv";
-import { createLLMClient, type ProjectConfig, ProjectConfigSchema } from "@actalk/inkos-core";
+import { createLLMClient, StateManager, type ProjectConfig, ProjectConfigSchema } from "@actalk/inkos-core";
 
 export const GLOBAL_CONFIG_DIR = join(homedir(), ".inkos");
 export const GLOBAL_ENV_PATH = join(GLOBAL_CONFIG_DIR, ".env");
@@ -80,4 +80,38 @@ export function log(message: string): void {
 
 export function logError(message: string): void {
   process.stderr.write(`[ERROR] ${message}\n`);
+}
+
+/**
+ * Resolve book-id: if provided use it, otherwise auto-detect when exactly one book exists.
+ * Validates that the book actually exists.
+ */
+export async function resolveBookId(
+  bookIdArg: string | undefined,
+  root: string,
+): Promise<string> {
+  const state = new StateManager(root);
+  const books = await state.listBooks();
+
+  if (bookIdArg) {
+    if (!books.includes(bookIdArg)) {
+      const available = books.length > 0 ? books.join(", ") : "(none)";
+      throw new Error(
+        `Book "${bookIdArg}" not found. Available books: ${available}`,
+      );
+    }
+    return bookIdArg;
+  }
+
+  if (books.length === 0) {
+    throw new Error(
+      "No books found. Create one first:\n  inkos book create --title '...' --genre xuanhuan",
+    );
+  }
+  if (books.length === 1) {
+    return books[0]!;
+  }
+  throw new Error(
+    `Multiple books found: ${books.join(", ")}\nPlease specify a book-id.`,
+  );
 }

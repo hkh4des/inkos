@@ -4,16 +4,33 @@ import { findProjectRoot, log, logError } from "../utils.js";
 
 export const statusCommand = new Command("status")
   .description("Show project status")
-  .action(async () => {
+  .argument("[book-id]", "Book ID (optional, shows all if omitted)")
+  .option("--json", "Output JSON")
+  .action(async (bookIdArg: string | undefined, opts) => {
     try {
       const root = findProjectRoot();
       const state = new StateManager(root);
 
-      const bookIds = await state.listBooks();
+      const allBookIds = await state.listBooks();
+      const bookIds = bookIdArg ? [bookIdArg] : allBookIds;
 
-      log(`InkOS Project: ${root}`);
-      log(`Books: ${bookIds.length}`);
-      log("");
+      if (bookIdArg && !allBookIds.includes(bookIdArg)) {
+        const msg = `Book "${bookIdArg}" not found. Available: ${allBookIds.join(", ") || "(none)"}`;
+        if (opts.json) {
+          log(JSON.stringify({ error: msg }));
+        } else {
+          logError(msg);
+        }
+        process.exit(1);
+      }
+
+      const booksData = [];
+
+      if (!opts.json) {
+        log(`InkOS Project: ${root}`);
+        log(`Books: ${allBookIds.length}`);
+        log("");
+      }
 
       for (const id of bookIds) {
         const book = await state.loadBookConfig(id);
@@ -27,20 +44,44 @@ export const statusCommand = new Command("status")
         const failed = index.filter(
           (ch) => ch.status === "audit-failed",
         ).length;
-
-        log(`  ${book.title} (${id})`);
-        log(`    Status: ${book.status}`);
-        log(`    Platform: ${book.platform} | Genre: ${book.genre}`);
         const totalWords = index.reduce((sum, ch) => sum + ch.wordCount, 0);
         const avgWords = index.length > 0 ? Math.round(totalWords / index.length) : 0;
 
-        log(`    Chapters: ${nextChapter - 1} / ${book.targetChapters}`);
-        log(`    Words: ${totalWords.toLocaleString()} (avg ${avgWords}/ch)`);
-        log(`    Approved: ${approved} | Pending: ${pending} | Failed: ${failed}`);
-        log("");
+        booksData.push({
+          id,
+          title: book.title,
+          status: book.status,
+          genre: book.genre,
+          platform: book.platform,
+          chapters: nextChapter - 1,
+          targetChapters: book.targetChapters,
+          totalWords,
+          avgWordsPerChapter: avgWords,
+          approved,
+          pending,
+          failed,
+        });
+
+        if (!opts.json) {
+          log(`  ${book.title} (${id})`);
+          log(`    Status: ${book.status}`);
+          log(`    Platform: ${book.platform} | Genre: ${book.genre}`);
+          log(`    Chapters: ${nextChapter - 1} / ${book.targetChapters}`);
+          log(`    Words: ${totalWords.toLocaleString()} (avg ${avgWords}/ch)`);
+          log(`    Approved: ${approved} | Pending: ${pending} | Failed: ${failed}`);
+          log("");
+        }
+      }
+
+      if (opts.json) {
+        log(JSON.stringify({ project: root, books: booksData }, null, 2));
       }
     } catch (e) {
-      logError(`Failed to get status: ${e}`);
+      if (opts.json) {
+        log(JSON.stringify({ error: String(e) }));
+      } else {
+        logError(`Failed to get status: ${e}`);
+      }
       process.exit(1);
     }
   });

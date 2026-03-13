@@ -2,7 +2,8 @@ import { Command } from "commander";
 import { PipelineRunner, StateManager } from "@actalk/inkos-core";
 import { readdir, unlink } from "node:fs/promises";
 import { join } from "node:path";
-import { loadConfig, createClient, findProjectRoot, resolveContext, log, logError } from "../utils.js";
+import { createInterface } from "node:readline";
+import { loadConfig, createClient, findProjectRoot, resolveContext, resolveBookId, log, logError } from "../utils.js";
 
 export const writeCommand = new Command("write")
   .description("Write chapters");
@@ -10,16 +11,17 @@ export const writeCommand = new Command("write")
 writeCommand
   .command("next")
   .description("Write the next chapter for a book")
-  .argument("<book-id>", "Book ID")
+  .argument("[book-id]", "Book ID (auto-detected if only one book)")
   .option("--count <n>", "Number of chapters to write", "1")
   .option("--context <text>", "Creative guidance (natural language)")
   .option("--context-file <path>", "Read guidance from file")
   .option("--json", "Output JSON")
-  .action(async (bookId: string, opts) => {
+  .action(async (bookIdArg: string | undefined, opts) => {
     try {
       const config = await loadConfig();
       const client = createClient(config);
       const root = findProjectRoot();
+      const bookId = await resolveBookId(bookIdArg, root);
       const context = await resolveContext(opts);
 
       const pipeline = new PipelineRunner({
@@ -34,7 +36,7 @@ writeCommand
 
       const results = [];
       for (let i = 0; i < count; i++) {
-        if (!opts.json) log(`Writing chapter for "${bookId}"...`);
+        if (!opts.json) log(`[${i + 1}/${count}] Writing chapter for "${bookId}"...`);
 
         const result = await pipeline.writeNextChapter(bookId);
         results.push(result);
@@ -65,7 +67,11 @@ writeCommand
         log("Done.");
       }
     } catch (e) {
-      logError(`Failed to write chapter: ${e}`);
+      if (opts.json) {
+        log(JSON.stringify({ error: String(e) }));
+      } else {
+        logError(`Failed to write chapter: ${e}`);
+      }
       process.exit(1);
     }
   });
@@ -73,14 +79,39 @@ writeCommand
 writeCommand
   .command("rewrite")
   .description("Re-generate a specific chapter (removes it and writes fresh)")
-  .argument("<book-id>", "Book ID")
+  .argument("[book-id]", "Book ID (auto-detected if only one book)")
   .argument("<chapter>", "Chapter number to rewrite")
-  .action(async (bookId: string, chapterStr: string) => {
+  .option("--force", "Skip confirmation prompt")
+  .option("--json", "Output JSON")
+  .action(async (bookIdArg: string, chapterStr: string, opts) => {
     try {
       const config = await loadConfig();
       const client = createClient(config);
       const root = findProjectRoot();
       const chapterNum = parseInt(chapterStr, 10);
+
+      // If only one argument, it's the chapter number (book-id auto-detected)
+      let bookId: string;
+      if (!chapterStr || isNaN(chapterNum)) {
+        // bookIdArg is actually the chapter number
+        bookId = await resolveBookId(undefined, root);
+        chapterStr = bookIdArg;
+      } else {
+        bookId = await resolveBookId(bookIdArg, root);
+      }
+      const chapter = parseInt(chapterStr, 10);
+
+      if (!opts.force) {
+        const rl = createInterface({ input: process.stdin, output: process.stdout });
+        const answer = await new Promise<string>((resolve) => {
+          rl.question(`Rewrite chapter ${chapter} of "${bookId}"? This will delete chapter ${chapter} and all later chapters. (y/N) `, resolve);
+        });
+        rl.close();
+        if (answer.toLowerCase() !== "y") {
+          log("Cancelled.");
+          return;
+        }
+      }
 
       const state = new StateManager(root);
       const bookDir = state.bookDir(bookId);
@@ -88,39 +119,39 @@ writeCommand
 
       // Remove existing chapter file
       const files = await readdir(chaptersDir);
-      const paddedNum = String(chapterNum).padStart(4, "0");
+      const paddedNum = String(chapter).padStart(4, "0");
       const existing = files.filter((f) => f.startsWith(paddedNum) && f.endsWith(".md"));
       for (const f of existing) {
         await unlink(join(chaptersDir, f));
-        log(`Removed: ${f}`);
+        if (!opts.json) log(`Removed: ${f}`);
       }
 
       // Remove from index (and all chapters after it)
       const index = await state.loadChapterIndex(bookId);
-      const trimmed = index.filter((ch) => ch.number < chapterNum);
+      const trimmed = index.filter((ch) => ch.number < chapter);
       await state.saveChapterIndex(bookId, trimmed);
 
       // Also remove later chapter files since state will be rolled back
       const laterFiles = files.filter((f) => {
         const num = parseInt(f.slice(0, 4), 10);
-        return num > chapterNum && f.endsWith(".md");
+        return num > chapter && f.endsWith(".md");
       });
       for (const f of laterFiles) {
         await unlink(join(chaptersDir, f));
-        log(`Removed later chapter: ${f}`);
+        if (!opts.json) log(`Removed later chapter: ${f}`);
       }
 
       // Restore state to previous chapter's end-state
-      if (chapterNum > 1) {
-        const restored = await state.restoreState(bookId, chapterNum - 1);
+      if (chapter > 1) {
+        const restored = await state.restoreState(bookId, chapter - 1);
         if (restored) {
-          log(`State restored from chapter ${chapterNum - 1} snapshot.`);
+          if (!opts.json) log(`State restored from chapter ${chapter - 1} snapshot.`);
         } else {
-          log(`Warning: no snapshot for chapter ${chapterNum - 1}. Using current state.`);
+          if (!opts.json) log(`Warning: no snapshot for chapter ${chapter - 1}. Using current state.`);
         }
       }
 
-      log(`Regenerating chapter ${chapterNum}...`);
+      if (!opts.json) log(`Regenerating chapter ${chapter}...`);
 
       const pipeline = new PipelineRunner({
         client,
@@ -131,12 +162,20 @@ writeCommand
 
       const result = await pipeline.writeNextChapter(bookId);
 
-      log(`  Chapter ${result.chapterNumber}: ${result.title}`);
-      log(`  Words: ${result.wordCount}`);
-      log(`  Audit: ${result.auditResult.passed ? "PASSED" : "NEEDS REVIEW"}`);
-      log(`  Status: ${result.status}`);
+      if (opts.json) {
+        log(JSON.stringify(result, null, 2));
+      } else {
+        log(`  Chapter ${result.chapterNumber}: ${result.title}`);
+        log(`  Words: ${result.wordCount}`);
+        log(`  Audit: ${result.auditResult.passed ? "PASSED" : "NEEDS REVIEW"}`);
+        log(`  Status: ${result.status}`);
+      }
     } catch (e) {
-      logError(`Failed to rewrite chapter: ${e}`);
+      if (opts.json) {
+        log(JSON.stringify({ error: String(e) }));
+      } else {
+        logError(`Failed to rewrite chapter: ${e}`);
+      }
       process.exit(1);
     }
   });

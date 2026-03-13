@@ -15,6 +15,7 @@ bookCommand
   .option("--chapter-words <n>", "Words per chapter", "3000")
   .option("--context <text>", "External context / instructions (natural language)")
   .option("--context-file <path>", "Read external context from file")
+  .option("--json", "Output JSON")
   .action(async (opts) => {
     try {
       const config = await loadConfig();
@@ -40,7 +41,7 @@ bookCommand
         updatedAt: now,
       };
 
-      log(`Creating book "${book.title}" (${book.genre} / ${book.platform})...`);
+      if (!opts.json) log(`Creating book "${book.title}" (${book.genre} / ${book.platform})...`);
 
       const context = await resolveContext(opts);
 
@@ -53,13 +54,28 @@ bookCommand
 
       await pipeline.initBook(book);
 
-      log(`Book created: ${bookId}`);
-      log(`  Location: books/${bookId}/`);
-      log(`  Story bible, outline, style guide generated.`);
-      log("");
-      log(`Next: inkos write next ${bookId}`);
+      if (opts.json) {
+        log(JSON.stringify({
+          bookId,
+          title: book.title,
+          genre: book.genre,
+          platform: book.platform,
+          location: `books/${bookId}/`,
+          nextStep: `inkos write next ${bookId}`,
+        }, null, 2));
+      } else {
+        log(`Book created: ${bookId}`);
+        log(`  Location: books/${bookId}/`);
+        log(`  Story bible, outline, book rules generated.`);
+        log("");
+        log(`Next: inkos write next ${bookId}`);
+      }
     } catch (e) {
-      logError(`Failed to create book: ${e}`);
+      if (opts.json) {
+        log(JSON.stringify({ error: String(e) }));
+      } else {
+        logError(`Failed to create book: ${e}`);
+      }
       process.exit(1);
     }
   });
@@ -67,24 +83,49 @@ bookCommand
 bookCommand
   .command("list")
   .description("List all books")
-  .action(async () => {
+  .option("--json", "Output JSON")
+  .action(async (opts) => {
     try {
       const root = findProjectRoot();
       const state = new StateManager(root);
       const bookIds = await state.listBooks();
 
       if (bookIds.length === 0) {
-        log("No books found. Create one with: inkos book create --title '...'");
+        if (opts.json) {
+          log(JSON.stringify({ books: [] }));
+        } else {
+          log("No books found. Create one with: inkos book create --title '...'");
+        }
         return;
       }
 
+      const books = [];
       for (const id of bookIds) {
         const book = await state.loadBookConfig(id);
         const nextChapter = await state.getNextChapterNumber(id);
-        log(`  ${id} | ${book.title} | ${book.genre}/${book.platform} | ${book.status} | chapters: ${nextChapter - 1}`);
+        const info = {
+          id,
+          title: book.title,
+          genre: book.genre,
+          platform: book.platform,
+          status: book.status,
+          chapters: nextChapter - 1,
+        };
+        books.push(info);
+        if (!opts.json) {
+          log(`  ${id} | ${book.title} | ${book.genre}/${book.platform} | ${book.status} | chapters: ${nextChapter - 1}`);
+        }
+      }
+
+      if (opts.json) {
+        log(JSON.stringify({ books }, null, 2));
       }
     } catch (e) {
-      logError(`Failed to list books: ${e}`);
+      if (opts.json) {
+        log(JSON.stringify({ error: String(e) }));
+      } else {
+        logError(`Failed to list books: ${e}`);
+      }
       process.exit(1);
     }
   });

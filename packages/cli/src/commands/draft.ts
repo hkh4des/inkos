@@ -1,18 +1,19 @@
 import { Command } from "commander";
 import { PipelineRunner } from "@actalk/inkos-core";
-import { loadConfig, createClient, findProjectRoot, resolveContext, log, logError } from "../utils.js";
+import { loadConfig, createClient, findProjectRoot, resolveContext, resolveBookId, log, logError } from "../utils.js";
 
 export const draftCommand = new Command("draft")
   .description("Write a draft chapter (no audit/revise)")
-  .argument("<book-id>", "Book ID")
+  .argument("[book-id]", "Book ID (auto-detected if only one book)")
   .option("--context <text>", "Creative guidance (natural language)")
   .option("--context-file <path>", "Read guidance from file")
   .option("--json", "Output JSON")
-  .action(async (bookId: string, opts) => {
+  .action(async (bookIdArg: string | undefined, opts) => {
     try {
       const config = await loadConfig();
       const client = createClient(config);
       const root = findProjectRoot();
+      const bookId = await resolveBookId(bookIdArg, root);
       const context = await resolveContext(opts);
 
       const pipeline = new PipelineRunner({

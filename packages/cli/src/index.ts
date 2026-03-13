@@ -16,13 +16,14 @@ import { auditCommand } from "./commands/audit.js";
 import { reviseCommand } from "./commands/revise.js";
 import { agentCommand } from "./commands/agent.js";
 import { genreCommand } from "./commands/genre.js";
+import { updateCommand } from "./commands/update.js";
 
 const program = new Command();
 
 program
   .name("inkos")
   .description("InkOS — Multi-agent novel production system")
-  .version("0.3.2");
+  .version("0.3.3");
 
 program.addCommand(initCommand);
 program.addCommand(configCommand);
@@ -40,5 +41,6 @@ program.addCommand(auditCommand);
 program.addCommand(reviseCommand);
 program.addCommand(agentCommand);
 program.addCommand(genreCommand);
+program.addCommand(updateCommand);
 
 program.parse();

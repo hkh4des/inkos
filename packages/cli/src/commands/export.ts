@@ -2,17 +2,19 @@ import { Command } from "commander";
 import { StateManager } from "@actalk/inkos-core";
 import { readFile, readdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { findProjectRoot, log, logError } from "../utils.js";
+import { findProjectRoot, resolveBookId, log, logError } from "../utils.js";
 
 export const exportCommand = new Command("export")
   .description("Export book chapters to a single file")
-  .argument("<book-id>", "Book ID")
+  .argument("[book-id]", "Book ID (auto-detected if only one book)")
   .option("--format <format>", "Output format (txt, md)", "txt")
   .option("--output <path>", "Output file path")
   .option("--approved-only", "Only export approved chapters")
-  .action(async (bookId: string, opts) => {
+  .option("--json", "Output JSON metadata")
+  .action(async (bookIdArg: string | undefined, opts) => {
     try {
       const root = findProjectRoot();
+      const bookId = await resolveBookId(bookIdArg, root);
       const state = new StateManager(root);
 
       const book = await state.loadBookConfig(bookId);
@@ -25,7 +27,12 @@ export const exportCommand = new Command("export")
         : index;
 
       if (chapters.length === 0) {
-        logError("No chapters to export.");
+        const msg = "No chapters to export.";
+        if (opts.json) {
+          log(JSON.stringify({ error: msg }));
+        } else {
+          logError(msg);
+        }
         process.exit(1);
       }
 
@@ -55,10 +62,24 @@ export const exportCommand = new Command("export")
         opts.output ?? join(root, `${bookId}_export.${opts.format}`);
       await writeFile(outputPath, parts.join("\n"), "utf-8");
 
-      log(`Exported ${chapters.length} chapters (${totalWords} words)`);
-      log(`Output: ${outputPath}`);
+      if (opts.json) {
+        log(JSON.stringify({
+          bookId,
+          chaptersExported: chapters.length,
+          totalWords,
+          format: opts.format,
+          outputPath,
+        }, null, 2));
+      } else {
+        log(`Exported ${chapters.length} chapters (${totalWords} words)`);
+        log(`Output: ${outputPath}`);
+      }
     } catch (e) {
-      logError(`Failed to export: ${e}`);
+      if (opts.json) {
+        log(JSON.stringify({ error: String(e) }));
+      } else {
+        logError(`Failed to export: ${e}`);
+      }
       process.exit(1);
     }
   });

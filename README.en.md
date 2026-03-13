@@ -257,28 +257,29 @@ inkos up                          # Daemon mode
 
 | Command | Description |
 |---------|-------------|
-| `inkos init` | Initialize a new project |
+| `inkos init [name]` | Initialize project (omit name to init current directory) |
 | `inkos book create` | Create a new book (generates worldbuilding + outline + book rules) |
 | `inkos book list` | List all books |
 | `inkos genre list/show/copy/create` | View, copy, or create genres |
-| `inkos write next <id>` | Full pipeline: write next chapter |
-| `inkos write rewrite <id> <n>` | Rewrite chapter N (restores state snapshot) |
-| `inkos draft <id>` | Write draft only (no audit or revision) |
-| `inkos audit <id> [n]` | Audit a specific chapter |
-| `inkos revise <id> [n]` | Revise a specific chapter |
+| `inkos write next [id]` | Full pipeline: write next chapter |
+| `inkos write rewrite [id] <n>` | Rewrite chapter N (restores state snapshot, requires confirmation) |
+| `inkos draft [id]` | Write draft only (no audit or revision) |
+| `inkos audit [id] [n]` | Audit a specific chapter |
+| `inkos revise [id] [n]` | Revise a specific chapter |
 | `inkos agent <instruction>` | Natural language agent mode |
-| `inkos review list/approve/reject` | Review drafts |
-| `inkos review approve-all <id>` | Batch approve |
-| `inkos status` | Project status |
-| `inkos export <id>` | Export book to txt/md |
+| `inkos review list [id]` | Review drafts |
+| `inkos review approve-all [id]` | Batch approve |
+| `inkos status [id]` | Project status |
+| `inkos export [id]` | Export book to txt/md |
 | `inkos radar scan` | Scan platform trends |
 | `inkos config set-global` | Set global LLM config (~/.inkos/.env) |
 | `inkos config show-global` | Show global config |
 | `inkos config set/show` | View/update project config |
 | `inkos doctor` | Diagnose setup issues (includes API connectivity test) |
+| `inkos update` | Update to latest version |
 | `inkos up / down` | Start/stop daemon |
 
-All commands support `--json` for structured output. `draft`/`write next`/`book create` support `--context` for writing guidance.
+`[id]` is auto-detected when the project has only one book. All commands support `--json` for structured output. `draft`/`write next`/`book create` support `--context` for writing guidance.
 
 ## Key Features
 
@@ -322,7 +323,7 @@ inkos/
 │   │   ├── llm/           # OpenAI + Anthropic dual SDK (streaming)
 │   │   ├── notify/        # Telegram, Feishu, WeCom
 │   │   └── models/        # Zod schema validation
-│   └── cli/               # Commander.js CLI (15 commands)
+│   └── cli/               # Commander.js CLI (16 commands)
 │       └── commands/      # init, book, write, draft, audit, revise, agent, review, status, export...
 └── (planned) studio/      # Web UI for review and editing
 ```
@@ -334,7 +335,7 @@ TypeScript monorepo managed with pnpm workspaces.
 - [x] Full pipeline (radar → architect → writer → auditor → reviser)
 - [x] Canonical truth files + continuity audit
 - [x] Built-in writing rule system
-- [x] Full CLI (15 commands)
+- [x] Full CLI (16 commands)
 - [x] State snapshots + chapter rewrite
 - [x] Daemon mode
 - [x] Notifications (Telegram / Feishu / WeCom)

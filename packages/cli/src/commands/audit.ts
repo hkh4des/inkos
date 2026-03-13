@@ -1,17 +1,28 @@
 import { Command } from "commander";
 import { PipelineRunner } from "@actalk/inkos-core";
-import { loadConfig, createClient, findProjectRoot, log, logError } from "../utils.js";
+import { loadConfig, createClient, findProjectRoot, resolveBookId, log, logError } from "../utils.js";
 
 export const auditCommand = new Command("audit")
   .description("Audit a chapter for continuity issues")
-  .argument("<book-id>", "Book ID")
+  .argument("[book-id]", "Book ID (auto-detected if only one book)")
   .argument("[chapter]", "Chapter number (defaults to latest)")
   .option("--json", "Output JSON")
-  .action(async (bookId: string, chapterStr: string | undefined, opts) => {
+  .action(async (bookIdArg: string | undefined, chapterStr: string | undefined, opts) => {
     try {
       const config = await loadConfig();
       const client = createClient(config);
       const root = findProjectRoot();
+
+      // If first arg looks like a number, treat it as chapter (auto-detect book)
+      let bookId: string;
+      let chapterNumber: number | undefined;
+      if (bookIdArg && /^\d+$/.test(bookIdArg)) {
+        bookId = await resolveBookId(undefined, root);
+        chapterNumber = parseInt(bookIdArg, 10);
+      } else {
+        bookId = await resolveBookId(bookIdArg, root);
+        chapterNumber = chapterStr ? parseInt(chapterStr, 10) : undefined;
+      }
 
       const pipeline = new PipelineRunner({
         client,
@@ -19,7 +30,6 @@ export const auditCommand = new Command("audit")
         projectRoot: root,
       });
 
-      const chapterNumber = chapterStr ? parseInt(chapterStr, 10) : undefined;
       if (!opts.json) log(`Auditing "${bookId}"${chapterNumber ? ` chapter ${chapterNumber}` : " (latest)"}...`);
 
       const result = await pipeline.auditDraft(bookId, chapterNumber);

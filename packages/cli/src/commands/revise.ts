@@ -1,18 +1,28 @@
 import { Command } from "commander";
 import { PipelineRunner, type ReviseMode } from "@actalk/inkos-core";
-import { loadConfig, createClient, findProjectRoot, log, logError } from "../utils.js";
+import { loadConfig, createClient, findProjectRoot, resolveBookId, log, logError } from "../utils.js";
 
 export const reviseCommand = new Command("revise")
   .description("Revise a chapter based on audit issues")
-  .argument("<book-id>", "Book ID")
+  .argument("[book-id]", "Book ID (auto-detected if only one book)")
   .argument("[chapter]", "Chapter number (defaults to latest)")
   .option("--mode <mode>", "Revise mode: polish, rewrite, rework", "rewrite")
   .option("--json", "Output JSON")
-  .action(async (bookId: string, chapterStr: string | undefined, opts) => {
+  .action(async (bookIdArg: string | undefined, chapterStr: string | undefined, opts) => {
     try {
       const config = await loadConfig();
       const client = createClient(config);
       const root = findProjectRoot();
+
+      let bookId: string;
+      let chapterNumber: number | undefined;
+      if (bookIdArg && /^\d+$/.test(bookIdArg)) {
+        bookId = await resolveBookId(undefined, root);
+        chapterNumber = parseInt(bookIdArg, 10);
+      } else {
+        bookId = await resolveBookId(bookIdArg, root);
+        chapterNumber = chapterStr ? parseInt(chapterStr, 10) : undefined;
+      }
 
       const pipeline = new PipelineRunner({
         client,
@@ -20,7 +30,6 @@ export const reviseCommand = new Command("revise")
         projectRoot: root,
       });
 
-      const chapterNumber = chapterStr ? parseInt(chapterStr, 10) : undefined;
       const mode = opts.mode as ReviseMode;
       if (!opts.json) log(`Revising "${bookId}"${chapterNumber ? ` chapter ${chapterNumber}` : " (latest)"} [mode: ${mode}]...`);
 

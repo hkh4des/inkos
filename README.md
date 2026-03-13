@@ -257,28 +257,29 @@ inkos up                       # 守护进程模式
 
 | 命令 | 说明 |
 |------|------|
-| `inkos init` | 初始化项目 |
+| `inkos init [name]` | 初始化项目（省略 name 在当前目录初始化） |
 | `inkos book create` | 创建新书（生成世界观 + 卷纲 + 本书规则） |
 | `inkos book list` | 列出所有书籍 |
 | `inkos genre list/show/copy/create` | 查看、复制、创建题材 |
-| `inkos write next <id>` | 完整管线写下一章 |
-| `inkos write rewrite <id> <n>` | 重写第 N 章（恢复状态快照） |
-| `inkos draft <id>` | 只写草稿（不审不改） |
-| `inkos audit <id> [n]` | 审计指定章节 |
-| `inkos revise <id> [n]` | 修订指定章节 |
+| `inkos write next [id]` | 完整管线写下一章 |
+| `inkos write rewrite [id] <n>` | 重写第 N 章（恢复状态快照，需确认） |
+| `inkos draft [id]` | 只写草稿（不审不改） |
+| `inkos audit [id] [n]` | 审计指定章节 |
+| `inkos revise [id] [n]` | 修订指定章节 |
 | `inkos agent <instruction>` | 自然语言 Agent 模式 |
-| `inkos review list/approve/reject` | 审阅草稿 |
-| `inkos review approve-all <id>` | 批量通过 |
-| `inkos status` | 项目状态 |
-| `inkos export <id>` | 导出书籍为 txt/md |
+| `inkos review list [id]` | 审阅草稿 |
+| `inkos review approve-all [id]` | 批量通过 |
+| `inkos status [id]` | 项目状态 |
+| `inkos export [id]` | 导出书籍为 txt/md |
 | `inkos radar scan` | 扫描平台趋势 |
 | `inkos config set-global` | 设置全局 LLM 配置（~/.inkos/.env） |
 | `inkos config show-global` | 查看全局配置 |
 | `inkos config set/show` | 查看/更新项目配置 |
 | `inkos doctor` | 诊断配置问题（含 API 连通性测试） |
+| `inkos update` | 更新到最新版本 |
 | `inkos up / down` | 启动/停止守护进程 |
 
-所有命令支持 `--json` 输出结构化数据，`draft`/`write next`/`book create` 支持 `--context` 传入创作指导。
+`[id]` 参数在项目只有一本书时可省略，自动检测。所有命令支持 `--json` 输出结构化数据，`draft`/`write next`/`book create` 支持 `--context` 传入创作指导。
 
 ## 实测数据
 
@@ -340,7 +341,7 @@ inkos/
 │   │   ├── llm/           # OpenAI + Anthropic 双 SDK 接口 (流式)
 │   │   ├── notify/        # Telegram, 飞书, 企业微信
 │   │   └── models/        # Zod schema 校验
-│   └── cli/               # Commander.js 命令行 (15 条命令)
+│   └── cli/               # Commander.js 命令行 (16 条命令)
 │       └── commands/      # init, book, write, draft, audit, revise, agent, review, status, export...
 └── (规划中) studio/        # 网页审阅编辑界面
 ```
