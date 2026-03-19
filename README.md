@@ -20,7 +20,7 @@
 
 Agent 写小说。写、审、改，全程接管。
 
-**Native English web fiction writing！** — Set `--lang en` to write in English. See [English README](README.en.md) for details.
+**Native English novel writing supported！** — Set `--lang en` to write in English. See [English README](README.en.md) for details.
 
 ## 快速开始
 
