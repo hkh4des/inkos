@@ -318,6 +318,11 @@ export class PipelineRunner {
         this.config.externalContext,
       );
 
+      if (book.narrativeMode === "interactive-tree") {
+        this.logStage(stageLanguage, { zh: "初始化互动分支树", en: "initializing interactive branch tree" });
+        await this.state.ensureInteractiveTreeAt(stagingBookDir);
+      }
+
       await this.state.saveChapterIndexAt(stagingBookDir, []);
 
       this.logStage(stageLanguage, { zh: "创建初始快照", en: "creating initial snapshot" });

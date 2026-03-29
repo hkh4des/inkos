@@ -340,6 +340,61 @@ describe("PipelineRunner", () => {
     }
   });
 
+  it("initializes a root interactive branch tree during book creation", async () => {
+    const root = await mkdtemp(join(tmpdir(), "inkos-init-interactive-book-test-"));
+    const bookId = "interactive-book";
+    const now = "2026-03-30T00:00:00.000Z";
+    const book: BookConfig = {
+      id: bookId,
+      title: "Interactive Book",
+      platform: "tomato",
+      genre: "xuanhuan",
+      status: "outlining",
+      targetChapters: 10,
+      chapterWordCount: 3000,
+      narrativeMode: "interactive-tree",
+      createdAt: now,
+      updatedAt: now,
+    };
+
+    const runner = new PipelineRunner({
+      client: {
+        provider: "openai",
+        apiFormat: "chat",
+        stream: false,
+        defaults: {
+          temperature: 0.7,
+          maxTokens: 4096,
+          thinkingBudget: 0, maxTokensCap: null,
+        },
+      } as ConstructorParameters<typeof PipelineRunner>[0]["client"],
+      model: "test-model",
+      projectRoot: root,
+    });
+
+    vi.spyOn(ArchitectAgent.prototype, "generateFoundation").mockResolvedValue({
+      storyBible: "# Story Bible\n",
+      volumeOutline: "# Volume Outline\n",
+      bookRules: "---\nversion: \"1.0\"\n---\n\n# Book Rules\n",
+      currentState: "# Current State\n",
+      pendingHooks: "# Pending Hooks\n",
+    });
+
+    try {
+      await runner.initBook(book);
+
+      const tree = await readFile(
+        join(root, "books", bookId, "story", "interactive", "branch-tree.json"),
+        "utf-8",
+      );
+
+      expect(tree).toContain("\"rootNodeId\": \"root\"");
+      expect(tree).toContain("\"activeNodeId\": \"root\"");
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
   it("bootstraps missing control documents for legacy books before writing", async () => {
     const { root, runner, bookId } = await createRunnerFixture();
 

@@ -153,6 +153,10 @@ export class StateManager {
     return join(this.bookDir(bookId), "story", "interactive");
   }
 
+  interactiveDirAt(bookDir: string): string {
+    return join(bookDir, "story", "interactive");
+  }
+
   async loadProjectConfig(): Promise<Record<string, unknown>> {
     const configPath = join(this.projectRoot, "inkos.json");
     const raw = await readFile(configPath, "utf-8");
@@ -277,7 +281,11 @@ export class StateManager {
   }
 
   async loadBranchTree(bookId: string): Promise<InteractiveBranchTree | null> {
-    const treePath = join(this.interactiveDir(bookId), "branch-tree.json");
+    return this.loadBranchTreeAt(this.bookDir(bookId));
+  }
+
+  async loadBranchTreeAt(bookDir: string): Promise<InteractiveBranchTree | null> {
+    const treePath = join(this.interactiveDirAt(bookDir), "branch-tree.json");
     try {
       const raw = await readFile(treePath, "utf-8");
       return InteractiveBranchTreeSchema.parse(JSON.parse(raw));
@@ -287,7 +295,11 @@ export class StateManager {
   }
 
   async saveBranchTree(bookId: string, tree: InteractiveBranchTree): Promise<void> {
-    const interactiveDir = this.interactiveDir(bookId);
+    await this.saveBranchTreeAt(this.bookDir(bookId), tree);
+  }
+
+  async saveBranchTreeAt(bookDir: string, tree: InteractiveBranchTree): Promise<void> {
+    const interactiveDir = this.interactiveDirAt(bookDir);
     await mkdir(interactiveDir, { recursive: true });
     await writeFile(
       join(interactiveDir, "branch-tree.json"),
@@ -297,7 +309,11 @@ export class StateManager {
   }
 
   async ensureInteractiveTree(bookId: string): Promise<InteractiveBranchTree> {
-    const existing = await this.loadBranchTree(bookId);
+    return this.ensureInteractiveTreeAt(this.bookDir(bookId));
+  }
+
+  async ensureInteractiveTreeAt(bookDir: string): Promise<InteractiveBranchTree> {
+    const existing = await this.loadBranchTreeAt(bookDir);
     if (existing) {
       return existing;
     }
@@ -326,7 +342,7 @@ export class StateManager {
       choices: [],
     };
 
-    await this.saveBranchTree(bookId, rootTree);
+    await this.saveBranchTreeAt(bookDir, rootTree);
     return rootTree;
   }
 

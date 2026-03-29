@@ -24,6 +24,7 @@ bookCommand
   .option("--platform <platform>", "Target platform", "tomato")
   .option("--target-chapters <n>", "Target chapter count", "200")
   .option("--chapter-words <n>", "Words per chapter", "3000")
+  .option("--narrative-mode <mode>", "Narrative mode: linear or interactive-tree", "linear")
   .option("--brief <path>", "Path to creative brief file (.md/.txt) — Architect builds from your ideas instead of generating from scratch")
   .option("--lang <language>", "Writing language: zh (Chinese) or en (English). Defaults from genre.")
   .option("--json", "Output JSON")
@@ -61,6 +62,7 @@ bookCommand
         targetChapters: parseInt(opts.targetChapters, 10),
         chapterWordCount: parseInt(opts.chapterWords, 10),
         language: opts.lang ?? config.language,
+        narrativeMode: opts.narrativeMode,
         createdAt: now,
         updatedAt: now,
       };

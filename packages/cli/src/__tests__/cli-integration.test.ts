@@ -229,6 +229,12 @@ describe("CLI integration", () => {
   });
 
   describe("inkos book create", () => {
+    it("exposes narrative mode flag in help output", () => {
+      const output = run(["book", "create", "--help"]);
+      expect(output).toContain("--narrative-mode");
+      expect(output).toContain("interactive-tree");
+    });
+
     it("removes stale incomplete book directories before retrying create", async () => {
       try {
         await stat(join(projectDir, "inkos.json"));
