@@ -1,14 +1,17 @@
 import type { HookAgenda } from "../models/input-governance.js";
 import type { HookRecord, HookStatus } from "../models/runtime-state.js";
 import type { StoredHook } from "../state/memory-db.js";
-import { resolveHookPayoffTiming } from "./hook-lifecycle.js";
+import { describeHookLifecycle, resolveHookPayoffTiming } from "./hook-lifecycle.js";
+import { HOOK_AGENDA_LIMITS, HOOK_AGENDA_LOAD_THRESHOLDS, type HookAgendaLoad } from "./hook-policy.js";
 
 export const DEFAULT_HOOK_LOOKAHEAD_CHAPTERS = 3;
 
 /**
- * Build the hook agenda using simple stalest-first sorting.
- * No lifecycle pressure formulas — just pick the hooks that have been
- * dormant the longest and the ones that are ripe for resolution.
+ * Build the hook agenda using lifecycle-aware scheduling.
+ * Uses payoffTiming profiles to differentiate short/long hooks:
+ * - immediate hooks trigger resolve pressure after 1-3 chapters
+ * - slow-burn hooks stay dormant until middle phase
+ * - endgame hooks only resolve in late phase
  */
 export function buildPlannerHookAgenda(params: {
   readonly hooks: ReadonlyArray<StoredHook>;
@@ -24,54 +27,90 @@ export function buildPlannerHookAgenda(params: {
     .filter((hook) => !isFuturePlannedHook(hook, params.chapterNumber, 0))
     .filter((hook) => hook.status !== "resolved" && hook.status !== "deferred");
 
-  // mustAdvance: stalest first (lowest lastAdvancedChapter)
-  const mustAdvanceHooks = agendaHooks
-    .slice()
-    .sort((left, right) => (
-      left.lastAdvancedChapter - right.lastAdvancedChapter
-      || left.startChapter - right.startChapter
-      || left.hookId.localeCompare(right.hookId)
-    ))
-    .slice(0, params.maxMustAdvance ?? 2);
+  // Compute lifecycle for each hook
+  const withLifecycle = agendaHooks.map((hook) => ({
+    hook,
+    lifecycle: describeHookLifecycle({
+      payoffTiming: hook.payoffTiming,
+      expectedPayoff: hook.expectedPayoff,
+      notes: hook.notes,
+      startChapter: hook.startChapter,
+      lastAdvancedChapter: hook.lastAdvancedChapter,
+      status: hook.status,
+      chapterNumber: params.chapterNumber,
+      targetChapters: params.targetChapters,
+    }),
+  }));
 
-  // staleDebt: hooks not advanced for 10+ chapters
-  const staleThreshold = params.chapterNumber - 10;
-  const staleDebtHooks = agendaHooks
-    .filter((hook) => {
-      const lastTouch = Math.max(hook.startChapter, hook.lastAdvancedChapter);
-      return lastTouch > 0 && lastTouch <= staleThreshold;
-    })
-    .sort((left, right) => (
-      left.lastAdvancedChapter - right.lastAdvancedChapter
-      || left.startChapter - right.startChapter
-      || left.hookId.localeCompare(right.hookId)
-    ))
-    .slice(0, params.maxStaleDebt ?? 2);
+  // Determine agenda load
+  const load = resolveAgendaLoad(withLifecycle);
+  const limits = HOOK_AGENDA_LIMITS[load];
 
-  // eligibleResolve: started 3+ chapters ago AND recently advanced
-  const eligibleResolveHooks = agendaHooks
-    .filter((hook) => hook.startChapter <= params.chapterNumber - 3)
-    .filter((hook) => hook.lastAdvancedChapter >= params.chapterNumber - 2)
-    .sort((left, right) => (
-      left.startChapter - right.startChapter
-      || right.lastAdvancedChapter - left.lastAdvancedChapter
-      || left.hookId.localeCompare(right.hookId)
-    ))
-    .slice(0, params.maxEligibleResolve ?? 1);
+  // eligibleResolve: lifecycle says readyToResolve, sorted by resolvePressure desc
+  const eligibleResolveHooks = withLifecycle
+    .filter((entry) => entry.lifecycle.readyToResolve)
+    .sort((left, right) => right.lifecycle.resolvePressure - left.lifecycle.resolvePressure)
+    .slice(0, params.maxEligibleResolve ?? limits.eligibleResolve);
 
-  const avoidNewHookFamilies = [...new Set([
-    ...staleDebtHooks.map((hook) => hook.type.trim()).filter(Boolean),
-    ...mustAdvanceHooks.map((hook) => hook.type.trim()).filter(Boolean),
-    ...eligibleResolveHooks.map((hook) => hook.type.trim()).filter(Boolean),
-  ])].slice(0, 3);
+  // staleDebt: lifecycle says stale or overdue, sorted by advancePressure desc
+  const resolveIds = new Set(eligibleResolveHooks.map((entry) => entry.hook.hookId));
+  const staleDebtHooks = withLifecycle
+    .filter((entry) => (entry.lifecycle.stale || entry.lifecycle.overdue) && !resolveIds.has(entry.hook.hookId))
+    .sort((left, right) => right.lifecycle.advancePressure - left.lifecycle.advancePressure)
+    .slice(0, params.maxStaleDebt ?? limits.staleDebt);
+
+  // mustAdvance: highest advancePressure, excluding those already in resolve/stale
+  const usedIds = new Set([
+    ...resolveIds,
+    ...staleDebtHooks.map((entry) => entry.hook.hookId),
+  ]);
+  const mustAdvanceHooks = withLifecycle
+    .filter((entry) => !usedIds.has(entry.hook.hookId))
+    .sort((left, right) => right.lifecycle.advancePressure - left.lifecycle.advancePressure)
+    .slice(0, params.maxMustAdvance ?? limits.mustAdvance);
+
+  // avoidNewHookFamilies: families with stale/overdue/pressured hooks
+  const pressuredFamilies = withLifecycle
+    .filter((entry) => entry.lifecycle.stale || entry.lifecycle.overdue)
+    .map((entry) => entry.hook.type.trim())
+    .filter(Boolean);
+  const avoidNewHookFamilies = [...new Set(pressuredFamilies)].slice(0, limits.avoidFamilies);
 
   return {
     pressureMap: [],
-    mustAdvance: mustAdvanceHooks.map((hook) => hook.hookId),
-    eligibleResolve: eligibleResolveHooks.map((hook) => hook.hookId),
-    staleDebt: staleDebtHooks.map((hook) => hook.hookId),
+    mustAdvance: mustAdvanceHooks.map((entry) => entry.hook.hookId),
+    eligibleResolve: eligibleResolveHooks.map((entry) => entry.hook.hookId),
+    staleDebt: staleDebtHooks.map((entry) => entry.hook.hookId),
     avoidNewHookFamilies,
   };
+}
+
+function resolveAgendaLoad(
+  entries: ReadonlyArray<{ lifecycle: ReturnType<typeof describeHookLifecycle> }>,
+): HookAgendaLoad {
+  const readyCount = entries.filter((e) => e.lifecycle.readyToResolve).length;
+  const staleCount = entries.filter((e) => e.lifecycle.stale).length;
+  const overdueCount = entries.filter((e) => e.lifecycle.overdue).length;
+  const pressuredCount = entries.filter((e) => e.lifecycle.stale || e.lifecycle.overdue).length;
+
+  if (
+    readyCount >= HOOK_AGENDA_LOAD_THRESHOLDS.heavyReadyCount
+    || staleCount >= HOOK_AGENDA_LOAD_THRESHOLDS.heavyStaleCount
+    || overdueCount >= HOOK_AGENDA_LOAD_THRESHOLDS.heavyCriticalCount
+    || pressuredCount >= HOOK_AGENDA_LOAD_THRESHOLDS.heavyPressuredCount
+  ) {
+    return "heavy";
+  }
+
+  if (
+    readyCount >= HOOK_AGENDA_LOAD_THRESHOLDS.mediumReadyCount
+    || staleCount >= HOOK_AGENDA_LOAD_THRESHOLDS.mediumStaleCount
+    || overdueCount >= HOOK_AGENDA_LOAD_THRESHOLDS.mediumCriticalCount
+  ) {
+    return "medium";
+  }
+
+  return "light";
 }
 
 function normalizeStoredHook(hook: StoredHook): HookRecord {

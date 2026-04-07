@@ -19,7 +19,7 @@ function createHook(overrides: Partial<StoredHook> = {}): StoredHook {
 }
 
 describe("hook-agenda", () => {
-  it("builds agenda with stalest-first sorting and chapter-window filtering", () => {
+  it("builds agenda with lifecycle-aware scheduling and chapter-window filtering", () => {
     const staleSlowBurn = createHook({
       hookId: "mentor-oath",
       startChapter: 4,
@@ -43,7 +43,13 @@ describe("hook-agenda", () => {
       language: "en",
     });
 
-    expect(agenda.mustAdvance).toContain("mentor-oath");
+    // Both hooks are stale at chapter 12: slow-burn dormancy=5 meets threshold,
+    // near-term dormancy=2 meets threshold and is overdue (age 10 >= 5).
+    // Neither is readyToResolve (slow-burn needs late phase or overdue; near-term
+    // lacks momentum). Both land in staleDebt sorted by advancePressure.
+    expect(agenda.staleDebt).toContain("ledger-fragment");
+    expect(agenda.staleDebt).toContain("mentor-oath");
+    expect(agenda.eligibleResolve).toEqual([]);
 
     expect(isHookWithinChapterWindow(staleSlowBurn, 12, 5)).toBe(true);
     expect(isHookWithinChapterWindow(readyMystery, 12, 5)).toBe(true);

@@ -1211,7 +1211,7 @@ describe("parsePendingHooksMarkdown", () => {
     ]);
   });
 
-  it("sorts must-advance by stalest-first and resolve by earliest-started", () => {
+  it("places near-term progressing hooks in eligible resolve and slow-burn in must-advance", () => {
     const agenda = memoryRetrieval.buildPlannerHookAgenda({
       chapterNumber: 18,
       hooks: [
@@ -1241,14 +1241,14 @@ describe("parsePendingHooksMarkdown", () => {
       targetChapters: 40,
     } as never);
 
-    expect(agenda.mustAdvance).toContain("slow-oath");
-    expect(agenda.mustAdvance).toContain("ready-packet");
-    expect(agenda.eligibleResolve).toContain("slow-oath");
+    // near-term progressing hook with recent touch is readyToResolve → eligibleResolve
     expect(agenda.eligibleResolve).toContain("ready-packet");
+    // slow-burn in middle phase (not late, not overdue) is not readyToResolve → mustAdvance
+    expect(agenda.mustAdvance).toContain("slow-oath");
     expect(agenda.pressureMap).toEqual([]);
   });
 
-  it("limits eligible resolve to default max of 1 when not overridden", () => {
+  it("scales eligible resolve slots with agenda load level", () => {
     const agenda = memoryRetrieval.buildPlannerHookAgenda({
       chapterNumber: 8,
       targetChapters: 12,
@@ -1286,11 +1286,13 @@ describe("parsePendingHooksMarkdown", () => {
       ] as never,
     } as never);
 
-    expect(agenda.eligibleResolve.length).toBe(1);
+    // All three hooks are readyToResolve (progressing + recentlyTouched),
+    // pushing readyCount to 3 which triggers heavy load (eligibleResolve=2).
+    expect(agenda.eligibleResolve.length).toBe(2);
     expect(agenda.pressureMap).toEqual([]);
   });
 
-  it("picks stalest hooks for must-advance regardless of type family", () => {
+  it("routes all stale/overdue hooks to staleDebt by advancePressure, with remainder in mustAdvance", () => {
     const agenda = memoryRetrieval.buildPlannerHookAgenda({
       chapterNumber: 15,
       targetChapters: 30,
@@ -1338,9 +1340,16 @@ describe("parsePendingHooksMarkdown", () => {
       ] as never,
     } as never);
 
-    expect(agenda.mustAdvance).toEqual(["mentor-oath-a", "mentor-oath-b"]);
-    expect(agenda.mustAdvance).toEqual(expect.arrayContaining([
-      expect.stringMatching(/^mentor-oath-/),
+    // All four are stale+overdue (mid-arc, dormancy >> 4, age >> 8).
+    // Heavy load (staleCount=4): staleDebt limit=3 captures highest advancePressure.
+    // The fourth-highest (kiln-key) lands in mustAdvance.
+    expect(agenda.staleDebt).toEqual(["mentor-oath-a", "mentor-oath-b", "mentor-oath-c"]);
+    expect(agenda.mustAdvance).toEqual(["kiln-key"]);
+    expect(agenda.eligibleResolve).toEqual([]);
+    // avoidNewHookFamilies includes both stale families
+    expect(agenda.avoidNewHookFamilies).toEqual(expect.arrayContaining([
+      "relationship",
+      "artifact",
     ]));
   });
 });

@@ -1203,9 +1203,11 @@ describe("PlannerAgent", () => {
       externalContext: "Keep the chapter on the mainline debt conflict.",
     });
 
-    expect(result.intent.hookAgenda.mustAdvance).toEqual(["stale-debt", "ready-payoff"]);
+    // Lifecycle scheduling: ready-payoff (progressing, mid-arc, overdue) → eligibleResolve;
+    // stale-debt (dormant, stale+overdue) → staleDebt; recent-route (remainder) → mustAdvance.
     expect(result.intent.hookAgenda.eligibleResolve).toEqual(["ready-payoff"]);
     expect(result.intent.hookAgenda.staleDebt).toEqual(["stale-debt"]);
+    expect(result.intent.hookAgenda.mustAdvance).toEqual(["recent-route"]);
     expect(result.intent.hookAgenda.avoidNewHookFamilies).toContain("relationship");
     expect(result.intent.hookAgenda.pressureMap).toEqual([]);
 
@@ -1321,8 +1323,10 @@ describe("PlannerAgent", () => {
       externalContext: "Keep the chapter on the route pressure.",
     });
 
-    expect(result.intent.hookAgenda.mustAdvance).toEqual(["stale-omega", "stale-sable"]);
+    // Lifecycle scheduling: stale-omega and stale-sable are stale+overdue → staleDebt;
+    // recent-token and recent-route are not stale/overdue → mustAdvance (by advancePressure).
     expect(result.intent.hookAgenda.staleDebt).toEqual(["stale-omega", "stale-sable"]);
+    expect(result.intent.hookAgenda.mustAdvance).toEqual(["recent-token", "recent-route"]);
     expect(result.intent.hookAgenda.avoidNewHookFamilies).toEqual(expect.arrayContaining([
       "relationship",
       "mystery",
