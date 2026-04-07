@@ -191,7 +191,7 @@ export class ReviserAgent extends BaseAgent {
       : characterMatrix;
 
     const systemPrompt = mode === "auto"
-      ? this.buildAutoSystemPrompt({ langPrefix, gp, protagonistBlock, numericalRule, lengthGuardrail, resolvedLanguage })
+      ? this.buildAutoSystemPrompt({ langPrefix, gp, protagonistBlock, numericalRule, lengthGuardrail, resolvedLanguage, lengthSpec: options?.lengthSpec })
       : this.buildLegacySystemPrompt({ langPrefix, gp, protagonistBlock, numericalRule, lengthGuardrail, mode, resolvedLanguage });
 
     const ledgerBlock = gp.numericalSystem
@@ -344,11 +344,18 @@ ${chapterContent}`;
     numericalRule: string;
     lengthGuardrail: string;
     resolvedLanguage: "zh" | "en";
+    lengthSpec?: LengthSpec;
   }): string {
-    const { langPrefix, gp, protagonistBlock, numericalRule, lengthGuardrail, resolvedLanguage } = params;
+    const { langPrefix, gp, protagonistBlock, numericalRule, resolvedLanguage, lengthSpec } = params;
+    // lengthGuardrail intentionally not used in auto mode — length constraint is embedded in REVISED_CONTENT description
     const en = resolvedLanguage === "en";
     const ledgerSection = gp.numericalSystem
       ? (en ? "\n=== UPDATED_LEDGER ===\n(Full updated resource ledger)" : "\n=== UPDATED_LEDGER ===\n(更新后的完整资源账本)")
+      : "";
+    const rewriteLengthConstraint = lengthSpec
+      ? (en
+          ? `\n  HARD CONSTRAINT: The revised chapter must stay within ${lengthSpec.softMin}-${lengthSpec.softMax} characters (target: ${lengthSpec.target}, ±25%). This is non-negotiable — do not exceed this range.`
+          : `\n  硬性约束：重写后的章节必须控制在 ${lengthSpec.softMin}-${lengthSpec.softMax} 字以内（目标 ${lengthSpec.target} 字，±25%）。这是不可突破的底线。`)
       : "";
 
     return en
@@ -360,7 +367,7 @@ PATCHES — for local text issues (wording, dialogue, AI-tell phrases, small con
   Each PATCH quotes the passage to change (a sentence, a paragraph, or multiple paragraphs) and provides a replacement. Untouched text stays exactly as-is.
 
 REVISED_CONTENT — for whole-chapter issues (length compression, structural rewrite, pacing restructure, major plot realignment).
-  Outputs the full revised chapter. When Critical issues include length or structural problems, you must use REVISED_CONTENT — patches cannot compress or restructure a chapter.
+  Outputs the full revised chapter. When Critical issues include length or structural problems, you must use REVISED_CONTENT — patches cannot compress or restructure a chapter.${rewriteLengthConstraint}
 
 If Critical issues include both local and whole-chapter problems, use REVISED_CONTENT (it addresses everything in one pass).
 
@@ -368,7 +375,7 @@ Revision principles:
 1. Fix root causes — do not apply superficial polish${numericalRule}
 2. Hook status must stay in sync with the hooks board. If hook debt briefs are provided, preserve hook payoff scenes
 3. Do not alter the plot direction or core conflicts
-4. Preserve the original language style, rhythm, and pacing — do not compress transitional scenes or remove breathing room${lengthGuardrail}
+4. Preserve the original language style, rhythm, and pacing — do not compress transitional scenes or remove breathing room
 
 Output format:
 
@@ -400,7 +407,7 @@ PATCHES——处理局部文字问题（措辞、对话、AI痕迹、小的连�
   每个 PATCH 引用要修改的原文段落（一句、一段或多段皆可），给出替换文本。未涉及的内容保持原样。
 
 REVISED_CONTENT——处理全章级问题（字数压缩、结构重组、节奏重排、重大剧情偏离）。
-  输出修正后的完整正文。当 Critical 问题包含字数或结构性问题时，必须使用 REVISED_CONTENT——PATCHES 无法压缩或重构整章。
+  输出修正后的完整正文。当 Critical 问题包含字数或结构性问题时，必须使用 REVISED_CONTENT——PATCHES 无法压缩或重构整章。${rewriteLengthConstraint}
 
 如果 Critical 同时包含局部问题和全章问题，使用 REVISED_CONTENT（一次性解决所有问题）。
 
@@ -408,7 +415,7 @@ REVISED_CONTENT——处理全章级问题（字数压缩、结构重组、节�
 1. 修根因，不做表面润色${numericalRule}
 2. 伏笔状态必须与伏笔池同步。如果提供了 Hook Debt 简报，必须保留伏笔兑现段落
 3. 不改变剧情走向和核心冲突
-4. 保持原文的语言风格、节奏和呼吸——不要压缩过渡段、不要删掉减速段${lengthGuardrail}
+4. 保持原文的语言风格、节奏和呼吸——不要压缩过渡段、不要删掉减速段
 
 输出格式：
 
