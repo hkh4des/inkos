@@ -36,6 +36,7 @@ import { analyzeHookHealth } from "../utils/hook-health.js";
 import { buildEnglishVarianceBrief } from "../utils/long-span-fatigue.js";
 import {
   buildNarrativeIntentBrief,
+  renderBriefAsNarrativeBlock,
   renderNarrativeSelectedContext,
   sanitizeNarrativeEvidenceBlock,
 } from "../utils/narrative-control.js";
@@ -187,14 +188,13 @@ export class WriterAgent extends BaseAgent {
     const creativeSystemPrompt = buildWriterSystemPrompt(
       book, genreProfile, bookRules, bookRulesBody, genreBody, styleGuide, styleFingerprint,
       chapterNumber, "creative", fanficContext, resolvedLanguage,
-      input.chapterIntent ? "governed" : "legacy",
+      input.chapterBrief ? "governed" : "legacy",
       resolvedLengthSpec,
     );
 
-    const creativeUserPrompt = input.chapterIntent && input.contextPackage && input.ruleStack
+    const creativeUserPrompt = input.chapterBrief && input.contextPackage && input.ruleStack
       ? this.buildGovernedUserPrompt({
           chapterNumber,
-          chapterIntent: input.chapterIntent,
           chapterBrief: input.chapterBrief,
           contextPackage: input.contextPackage,
           ruleStack: input.ruleStack,
@@ -812,8 +812,7 @@ ${lengthRequirementBlock}
 
   private buildGovernedUserPrompt(params: {
     readonly chapterNumber: number;
-    readonly chapterIntent: string;
-    readonly chapterBrief?: ChapterBrief;
+    readonly chapterBrief: ChapterBrief;
     readonly contextPackage: ContextPackage;
     readonly ruleStack: RuleStack;
     readonly trace?: ChapterTrace;
@@ -848,29 +847,12 @@ ${lengthRequirementBlock}
     const selectedEvidenceBlock = params.selectedEvidenceBlock
       ? `\n${sanitizeNarrativeEvidenceBlock(params.selectedEvidenceBlock, language)}\n`
       : "";
-    const narrativeIntent = buildNarrativeIntentBrief(params.chapterIntent, language);
-    const briefBlock = params.chapterBrief
-      ? [
-          language === "en" ? "## Chapter Brief" : "## 章节简报",
-          `- chapterType: ${params.chapterBrief.chapterType}`,
-          `- isGoldenOpening: ${params.chapterBrief.isGoldenOpening ? "true" : "false"}`,
-          ...(params.chapterBrief.beatOutline.length > 0
-            ? params.chapterBrief.beatOutline.map((beat) => `- ${beat.phase}: ${beat.instruction}`)
-            : []),
-          ...(params.chapterBrief.propsAndSetting.length > 0
-            ? [`- propsAndSetting: ${params.chapterBrief.propsAndSetting.join(", ")}`]
-            : []),
-          "",
-        ].join("\n")
-      : "";
+    const briefNarrative = renderBriefAsNarrativeBlock(params.chapterBrief, language);
 
     if (params.language === "en") {
       return `Write chapter ${params.chapterNumber}.
 
-## Chapter Intent
-${narrativeIntent || "(none)"}
-
-${briefBlock}
+${briefNarrative}
 
 ## Selected Context
 ${contextSections || "(none)"}
@@ -895,10 +877,7 @@ ${lengthRequirementBlock}
 
     return `请续写第${params.chapterNumber}章。
 
-## 本章意图
-${narrativeIntent || "(无)"}
-
-${briefBlock}
+${briefNarrative}
 
 ## 已选上下文
 ${contextSections || "(无)"}
