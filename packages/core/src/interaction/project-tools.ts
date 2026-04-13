@@ -588,9 +588,13 @@ export function createInteractionToolsFromDeps(
               onTextDelta: hooks?.onChatTextDelta,
             },
           );
-        } catch {
+        } catch (err) {
           // Thinking models (e.g. kimi-k2.5) may return empty content for simple inputs.
-          // Fall through to the built-in reply below.
+          // Only swallow empty-content errors; re-throw everything else (network, auth, etc.)
+          const msg = err instanceof Error ? err.message : "";
+          if (!msg.includes("empty") && !msg.includes("content")) {
+            throw err;
+          }
         }
       }
 
