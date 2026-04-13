@@ -191,7 +191,7 @@ export function Dashboard({ nav, sse, theme, t }: { nav: Nav; sse: { messages: R
           return (
             <div
               key={book.id}
-              className={`paper-sheet group relative rounded-2xl overflow-hidden fade-in ${staggerClass}`}
+              className={`paper-sheet group relative rounded-2xl fade-in ${staggerClass}`}
             >
               <div className="p-8 flex items-start justify-between">
                 <div className="flex-1 min-w-0">
