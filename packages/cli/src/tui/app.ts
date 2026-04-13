@@ -110,6 +110,13 @@ export async function launchTui(
   projectRoot: string,
   toolsOverride?: InteractionRuntimeTools,
 ): Promise<void> {
+  // Terminal.app has a CoreGraphics bug where UTF-8 bytes (e.g. CJK, em dash)
+  // end up in color space pointers during ANSI color rendering, causing SIGSEGV.
+  // Disable all color output to avoid triggering the crash.
+  if (isAppleTerminal) {
+    process.env.FORCE_COLOR = "0";
+  }
+
   projectRoot = await resolveProjectRoot(projectRoot);
   const { hasLlmConfig } = await ensureProject(projectRoot);
   const projectLanguage = await detectProjectLanguage(projectRoot);
