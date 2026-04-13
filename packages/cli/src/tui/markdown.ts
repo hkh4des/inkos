@@ -11,8 +11,8 @@ marked.use(markedTerminal({
   // so reflowText won't split ANSI codes across lines. Post-process converts them.
   listitem: (text: string) => text,
   strong: (text: string) => `**${text}**`,
-  // cli-table3 defaults table headers to red; override to bold only
-  tableOptions: { style: { head: ["bold"] } },
+  // cli-table3 defaults table headers to red; disable to inherit parent color
+  tableOptions: { style: { head: [] } },
 }) as never);
 
 const BOLD_ON = "\x1b[1m";
