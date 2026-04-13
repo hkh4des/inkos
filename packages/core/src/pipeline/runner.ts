@@ -2253,11 +2253,10 @@ ${matrix}`,
         this.buildImportReplayStateSeed(language),
         "utf-8",
       ),
-      writeFile(
-        join(storyDir, "pending_hooks.md"),
-        this.buildImportReplayHooksSeed(language),
-        "utf-8",
-      ),
+      // NOTE: pending_hooks.md intentionally NOT reset here — hooks are
+      // chapter-content-specific and user may have invested significant
+      // effort in tuning them. The replay will incrementally add new hooks
+      // detected from the imported chapters without destroying existing ones.
       rm(join(storyDir, "chapter_summaries.md"), { force: true }),
       rm(join(storyDir, "subplot_board.md"), { force: true }),
       rm(join(storyDir, "emotional_arcs.md"), { force: true }),
