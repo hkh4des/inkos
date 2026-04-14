@@ -44,7 +44,7 @@ import {
 import { persistChapterArtifacts } from "./chapter-persistence.js";
 import { runChapterReviewCycle } from "./chapter-review-cycle.js";
 import { validateChapterTruthPersistence } from "./chapter-truth-validation.js";
-import { loadPersistedPlan, relativeToBookDir } from "./persisted-governed-plan.js";
+import { loadPersistedPlan, relativeToBookDir, savePersistedPlan } from "./persisted-governed-plan.js";
 
 const SEQUENCE_LEVEL_CATEGORIES = new Set([
   "Pacing Monotony", "节奏单调",
@@ -2757,12 +2757,16 @@ ${matrix}`,
     }
 
     const planner = new PlannerAgent(this.agentCtxFor("planner", book.id));
-    return planner.planChapter({
+    const plan = await planner.planChapter({
       book,
       bookDir,
       chapterNumber,
       externalContext,
     });
+    // Persist in the new memo format so subsequent compose/write phases can
+    // skip the planner LLM call when no new context is supplied.
+    await savePersistedPlan(bookDir, plan);
+    return plan;
   }
 
   private async emitWebhook(
