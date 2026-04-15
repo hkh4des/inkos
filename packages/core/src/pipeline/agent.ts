@@ -578,7 +578,10 @@ export async function executeAgentTool(
         "outline/story_frame.md", "outline/volume_map.md",
         "outline/节奏原则.md", "outline/rhythm_principles.md",
       ];
-      const ROLE_PATH_PATTERN = /^roles\/(主要角色|次要角色)\/[^/]+\.md$/;
+      // Phase hotfix 3: accept both locale dirs so English-layout books can
+      // be edited via write_truth_file. The reader (utils/outline-paths.ts)
+      // and Studio (server.ts) accept both — the agent whitelist must match.
+      const ROLE_PATH_PATTERN = /^roles\/(主要角色|次要角色|major|minor)\/[^/]+\.md$/;
 
       const isAllowed =
         ALLOWED_FLAT_FILES.includes(fileName)
@@ -591,6 +594,8 @@ export async function executeAgentTool(
           ...ALLOWED_OUTLINE_FILES,
           "roles/主要角色/<name>.md",
           "roles/次要角色/<name>.md",
+          "roles/major/<name>.md",
+          "roles/minor/<name>.md",
         ];
         return JSON.stringify({
           error:

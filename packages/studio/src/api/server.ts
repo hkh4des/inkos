@@ -290,10 +290,14 @@ export function createStudioServer(initialConfig: ProjectConfig, root: string) {
       return null;
     }
 
+    // Phase hotfix 3: accept both Chinese and English locale role dirs so
+    // English-layout books (roles/major, roles/minor) are reachable through
+    // Studio. The runtime reader (utils/outline-paths.ts:75) already scans
+    // both — Studio used to drop English books to read-only.
     const allowed =
       TRUTH_FLAT_FILES.includes(file)
       || TRUTH_OUTLINE_FILES.includes(file)
-      || /^roles\/(主要角色|次要角色)\/[^/]+\.md$/.test(file);
+      || /^roles\/(主要角色|次要角色|major|minor)\/[^/]+\.md$/.test(file);
 
     if (!allowed) return null;
 
@@ -535,11 +539,21 @@ export function createStudioServer(initialConfig: ProjectConfig, root: string) {
       const flatFiles = (await listDir(".")).filter((f) => !f.startsWith("outline") && !f.startsWith("roles"));
       // Phase 5 outline/ files
       const outlineFiles = (await listDir("outline")).map((f) => `outline/${f}`);
-      // Phase 5 roles/主要角色 + roles/次要角色
-      const majorRoles = (await listDir("roles/主要角色")).map((f) => `roles/主要角色/${f}`);
-      const minorRoles = (await listDir("roles/次要角色")).map((f) => `roles/次要角色/${f}`);
+      // Phase 5 roles/主要角色 + roles/次要角色, plus Phase hotfix 3
+      // English-locale equivalents so en-language books are visible.
+      const majorRolesZh = (await listDir("roles/主要角色")).map((f) => `roles/主要角色/${f}`);
+      const minorRolesZh = (await listDir("roles/次要角色")).map((f) => `roles/次要角色/${f}`);
+      const majorRolesEn = (await listDir("roles/major")).map((f) => `roles/major/${f}`);
+      const minorRolesEn = (await listDir("roles/minor")).map((f) => `roles/minor/${f}`);
 
-      const all = [...flatFiles, ...outlineFiles, ...majorRoles, ...minorRoles];
+      const all = [
+        ...flatFiles,
+        ...outlineFiles,
+        ...majorRolesZh,
+        ...minorRolesZh,
+        ...majorRolesEn,
+        ...minorRolesEn,
+      ];
       const described = await Promise.all(all.map(describe));
       const result = described.filter((x): x is NonNullable<typeof x> => x !== null);
       return c.json({ files: result });
