@@ -210,7 +210,7 @@ const TOOLS: ReadonlyArray<ToolDefinition> = [
       type: "object",
       properties: {
         bookId: { type: "string", description: "书籍ID" },
-        fileName: { type: "string", description: "文件名（如 volume_outline.md、story_bible.md、book_rules.md、current_state.md、pending_hooks.md）" },
+        fileName: { type: "string", description: "文件名（如 outline/volume_map.md、outline/story_frame.md、book_rules.md、current_state.md、pending_hooks.md；story_bible.md 和 volume_outline.md 为兼容指针，也允许写入）" },
         content: { type: "string", description: "新的完整文件内容" },
       },
       required: ["bookId", "fileName", "content"],
@@ -569,6 +569,9 @@ export async function executeAgentTool(
         "current_state.md", "particle_ledger.md", "pending_hooks.md",
         "chapter_summaries.md", "subplot_board.md", "emotional_arcs.md",
         "character_matrix.md", "style_guide.md",
+        // Phase 5 — new prose outline files
+        "outline/story_frame.md", "outline/volume_map.md",
+        "outline/节奏原则.md", "outline/rhythm_principles.md",
       ];
 
       if (!ALLOWED_FILES.includes(fileName)) {
