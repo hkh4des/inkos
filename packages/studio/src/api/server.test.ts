@@ -459,6 +459,47 @@ describe("createStudioServer daemon lifecycle", () => {
     );
   });
 
+  it("auto-falls back to a non-stream probe in doctor checks when the first transport returns empty", async () => {
+    const freshConfig = {
+      ...cloneProjectConfig(),
+      llm: {
+        ...cloneProjectConfig().llm,
+        model: "claude-sonnet-4-6",
+        baseUrl: "https://timesniper.club",
+        stream: true,
+        apiFormat: "chat",
+      },
+    };
+    loadProjectConfigMock.mockResolvedValue(freshConfig);
+    createLLMClientMock.mockImplementation(((cfg: unknown) => cfg) as any);
+    chatCompletionMock.mockImplementation(async (client: any) => {
+      if (client.stream === false) {
+        return {
+          content: "pong",
+          usage: { promptTokens: 1, completionTokens: 1, totalTokens: 2 },
+        };
+      }
+      throw new Error("LLM returned empty response from stream");
+    });
+
+    const { createStudioServer } = await import("./server.js");
+    const app = createStudioServer(freshConfig as never, root);
+
+    const response = await app.request("http://localhost/api/v1/doctor");
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({
+      llmConnected: true,
+    });
+    expect(createLLMClientMock).toHaveBeenCalledWith(expect.objectContaining({
+      stream: true,
+      apiFormat: "chat",
+    }));
+    expect(createLLMClientMock).toHaveBeenCalledWith(expect.objectContaining({
+      stream: false,
+      apiFormat: "chat",
+    }));
+  });
+
   it("reloads latest llm config for radar scans without restarting the studio server", async () => {
     const startupConfig = {
       ...cloneProjectConfig(),
@@ -679,6 +720,102 @@ describe("createStudioServer daemon lifecycle", () => {
     expect(modelsResponse.status).toBe(200);
     await expect(modelsResponse.json()).resolves.toMatchObject({
       models: [{ id: "corp-chat", name: "corp-chat" }],
+    });
+  });
+
+  it("auto-detects a working custom combination when /models is unavailable", async () => {
+    await writeFile(join(root, "inkos.json"), JSON.stringify({
+      ...projectConfig,
+      llm: {
+        configSource: "env",
+        services: [
+          { service: "custom", name: "MiniMax", baseUrl: "https://api.minimax.com/v1" },
+        ],
+      },
+    }, null, 2), "utf-8");
+    await writeFile(join(root, ".env"), [
+      "INKOS_LLM_MODEL=MiniMax-M2.7",
+      "INKOS_LLM_BASE_URL=https://api.minimax.com/v1",
+      "INKOS_LLM_API_KEY=sk-minimax",
+    ].join("\n"), "utf-8");
+
+    createLLMClientMock.mockImplementation(((cfg: unknown) => cfg) as any);
+    chatCompletionMock.mockImplementation(async (client: any) => {
+      if (client.apiFormat === "chat" && client.stream === false) {
+        return {
+          content: "pong",
+          usage: { promptTokens: 1, completionTokens: 1, totalTokens: 2 },
+        };
+      }
+      throw new Error("LLM returned empty response from stream");
+    });
+
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: false,
+      status: 404,
+      text: async () => "404 page not found",
+    });
+    vi.stubGlobal("fetch", fetchMock as typeof fetch);
+
+    const { createStudioServer } = await import("./server.js");
+    const app = createStudioServer(cloneProjectConfig() as never, root);
+
+    const response = await app.request("http://localhost/api/v1/services/custom%3AMiniMax/test", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        apiKey: "sk-minimax",
+        baseUrl: "https://api.minimax.com/v1",
+        apiFormat: "chat",
+        stream: true,
+      }),
+    });
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({
+      ok: true,
+      selectedModel: "MiniMax-M2.7",
+      detected: {
+        apiFormat: "chat",
+        stream: false,
+        modelsSource: "fallback",
+      },
+      models: [{ id: "MiniMax-M2.7", name: "MiniMax-M2.7" }],
+    });
+  });
+
+  it("falls back to the detected/default model when custom /models is unavailable", async () => {
+    await writeFile(join(root, "inkos.json"), JSON.stringify({
+      ...projectConfig,
+      llm: {
+        defaultModel: "MiniMax-M2.7",
+        services: [
+          { service: "custom", name: "MiniMax", baseUrl: "https://api.minimax.com/v1", apiFormat: "chat", stream: false },
+        ],
+      },
+    }, null, 2), "utf-8");
+    getServiceApiKeyMock.mockResolvedValue("sk-minimax");
+
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: false,
+      status: 404,
+      text: async () => "404 page not found",
+    });
+    vi.stubGlobal("fetch", fetchMock as typeof fetch);
+    createLLMClientMock.mockImplementation(((cfg: unknown) => cfg) as any);
+    chatCompletionMock.mockResolvedValue({
+      content: "pong",
+      usage: { promptTokens: 1, completionTokens: 1, totalTokens: 2 },
+    });
+
+    const { createStudioServer } = await import("./server.js");
+    const app = createStudioServer(cloneProjectConfig() as never, root);
+
+    const response = await app.request("http://localhost/api/v1/services/custom%3AMiniMax/models");
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({
+      models: [{ id: "MiniMax-M2.7", name: "MiniMax-M2.7" }],
     });
   });
 

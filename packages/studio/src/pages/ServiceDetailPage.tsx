@@ -13,6 +13,13 @@ interface ModelInfo {
   readonly name?: string;
 }
 
+interface DetectedConfig {
+  readonly apiFormat?: "chat" | "responses";
+  readonly stream?: boolean;
+  readonly baseUrl?: string;
+  readonly modelsSource?: "api" | "fallback";
+}
+
 // Unified page state
 type ConnectionStatus =
   | { state: "idle" }               // No action taken yet
@@ -57,6 +64,8 @@ export function ServiceDetailPage({ serviceId, nav }: { serviceId: string; nav: 
   const [maxTokens, setMaxTokens] = useState("4096");
   const [apiFormat, setApiFormat] = useState<"chat" | "responses">("chat");
   const [stream, setStream] = useState(true);
+  const [detectedModel, setDetectedModel] = useState<string>("");
+  const [detectedConfig, setDetectedConfig] = useState<DetectedConfig | null>(null);
 
   // -- Unified connection status --
   const [status, setStatus] = useState<ConnectionStatus>({ state: "idle" });
@@ -140,7 +149,14 @@ export function ServiceDetailPage({ serviceId, nav }: { serviceId: string; nav: 
     setApiKey(trimmedKey);
     setStatus({ state: "testing" });
     try {
-      const result = await fetchJson<{ ok: boolean; models?: ModelInfo[]; modelCount?: number; error?: string }>(
+      const result = await fetchJson<{
+        ok: boolean;
+        models?: ModelInfo[];
+        modelCount?: number;
+        selectedModel?: string;
+        detected?: DetectedConfig;
+        error?: string;
+      }>(
         `/services/${encodeURIComponent(effectiveServiceId)}/test`,
         {
           method: "POST",
@@ -155,6 +171,11 @@ export function ServiceDetailPage({ serviceId, nav }: { serviceId: string; nav: 
       );
       if (result.ok) {
         const models = result.models ?? [];
+        if (result.detected?.apiFormat) setApiFormat(result.detected.apiFormat);
+        if (typeof result.detected?.stream === "boolean") setStream(result.detected.stream);
+        if (isCustom && result.detected?.baseUrl) setBaseUrl(result.detected.baseUrl);
+        setDetectedModel(result.selectedModel ?? "");
+        setDetectedConfig(result.detected ?? null);
         setStatus({ state: "connected", models });
         setStoreModels(effectiveServiceId, models); // Write to global store
       } else {
@@ -186,6 +207,8 @@ export function ServiceDetailPage({ serviceId, nav }: { serviceId: string; nav: 
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
+          service: effectiveServiceId,
+          ...(detectedModel ? { defaultModel: detectedModel } : {}),
           services: [
             {
               service: isCustom ? "custom" : serviceId,
@@ -290,7 +313,10 @@ export function ServiceDetailPage({ serviceId, nav }: { serviceId: string; nav: 
           </button>
           {/* Status feedback */}
           {status.state === "connected" && (
-            <span className="text-xs text-emerald-500">连接成功，{models.length} 个模型</span>
+            <span className="text-xs text-emerald-500">
+              连接成功，{models.length} 个模型
+              {detectedModel ? `，已自动匹配 ${detectedModel}${detectedConfig ? ` / ${detectedConfig.apiFormat === "responses" ? "Responses" : "Chat"} / ${detectedConfig.stream ? "流式" : "非流式"}` : ""}` : ""}
+            </span>
           )}
           {status.state === "error" && (
             <span className="text-xs text-destructive">{status.message}</span>
