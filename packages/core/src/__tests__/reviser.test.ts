@@ -706,4 +706,154 @@ describe("ReviserAgent", () => {
       await rm(root, { recursive: true, force: true });
     }
   });
+
+  it("routes structural issues to REVISED_CONTENT (rewrite-only) and rejects stray PATCHES", async () => {
+    const root = await mkdtemp(join(tmpdir(), "inkos-reviser-route-structural-"));
+    const bookDir = join(root, "book");
+    await mkdir(join(bookDir, "story"), { recursive: true });
+
+    const agent = new ReviserAgent({
+      client: {
+        provider: "openai",
+        apiFormat: "chat",
+        stream: false,
+        defaults: {
+          temperature: 0.7,
+          maxTokens: 4096,
+          thinkingBudget: 0, maxTokensCap: null,
+          extra: {},
+        },
+      },
+      model: "test-model",
+      projectRoot: root,
+    });
+
+    // Model returns PATCHES when reviewer asked for REVISED_CONTENT — parser
+    // must reject the patches and leave the chapter unchanged.
+    const chatSpy = vi.spyOn(ReviserAgent.prototype as never, "chat" as never).mockResolvedValue({
+      content: [
+        "=== FIXED_ISSUES ===",
+        "- tried to patch but problem is structural",
+        "",
+        "=== PATCHES ===",
+        "--- PATCH 1 ---",
+        "TARGET_TEXT:",
+        "原文。",
+        "REPLACEMENT_TEXT:",
+        "局部替换。",
+        "--- END PATCH ---",
+        "",
+        "=== UPDATED_STATE ===",
+        "状态卡",
+        "",
+        "=== UPDATED_HOOKS ===",
+        "伏笔池",
+      ].join("\n"),
+      usage: ZERO_USAGE,
+    });
+
+    try {
+      const out = await agent.reviseChapter(
+        bookDir,
+        "原文。",
+        1,
+        [
+          {
+            severity: "critical",
+            category: "章节备忘偏离",
+            description: "未兑现 memo 的 goal",
+            suggestion: "重写全章",
+          },
+        ],
+        "auto",
+        "xuanhuan",
+      );
+
+      const messages = chatSpy.mock.calls[0]?.[0] as
+        | ReadonlyArray<{ content: string }>
+        | undefined;
+      const systemPrompt = messages?.[0]?.content ?? "";
+
+      // System prompt directs model to REVISED_CONTENT for structural issues.
+      expect(systemPrompt).toContain("分流指令");
+      expect(systemPrompt).toContain("必须输出 REVISED_CONTENT");
+      // Parser rejects stray PATCHES in rewrite-only mode.
+      expect(out.revisedContent).toBe("原文。");
+      expect(out.fixedIssues).toEqual([]);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("routes local issues to PATCHES (patch-only) and rejects stray REVISED_CONTENT", async () => {
+    const root = await mkdtemp(join(tmpdir(), "inkos-reviser-route-local-"));
+    const bookDir = join(root, "book");
+    await mkdir(join(bookDir, "story"), { recursive: true });
+
+    const agent = new ReviserAgent({
+      client: {
+        provider: "openai",
+        apiFormat: "chat",
+        stream: false,
+        defaults: {
+          temperature: 0.7,
+          maxTokens: 4096,
+          thinkingBudget: 0, maxTokensCap: null,
+          extra: {},
+        },
+      },
+      model: "test-model",
+      projectRoot: root,
+    });
+
+    // Model returns REVISED_CONTENT when reviewer asked for PATCHES — parser
+    // must reject the rewrite (patch-only mode) and leave the chapter unchanged.
+    const chatSpy = vi.spyOn(ReviserAgent.prototype as never, "chat" as never).mockResolvedValue({
+      content: [
+        "=== FIXED_ISSUES ===",
+        "- rewrote whole chapter",
+        "",
+        "=== REVISED_CONTENT ===",
+        "整章重写的正文。",
+        "",
+        "=== UPDATED_STATE ===",
+        "状态卡",
+        "",
+        "=== UPDATED_HOOKS ===",
+        "伏笔池",
+      ].join("\n"),
+      usage: ZERO_USAGE,
+    });
+
+    try {
+      const out = await agent.reviseChapter(
+        bookDir,
+        "原文。",
+        1,
+        [
+          {
+            severity: "warning",
+            category: "高疲劳词",
+            description: "'不禁' 密度过高",
+            suggestion: "替换成具体动作",
+          },
+        ],
+        "auto",
+        "xuanhuan",
+      );
+
+      const messages = chatSpy.mock.calls[0]?.[0] as
+        | ReadonlyArray<{ content: string }>
+        | undefined;
+      const systemPrompt = messages?.[0]?.content ?? "";
+
+      expect(systemPrompt).toContain("分流指令");
+      expect(systemPrompt).toContain("必须只输出 PATCHES");
+      // Parser rejects REVISED_CONTENT in patch-only mode.
+      expect(out.revisedContent).toBe("原文。");
+      expect(out.fixedIssues).toEqual([]);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
 });

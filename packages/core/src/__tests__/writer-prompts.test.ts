@@ -109,6 +109,61 @@ describe("buildWriterSystemPrompt", () => {
     expect(prompt).toContain("Keep the prose restrained");
   });
 
+  it("injects the creative constitution and six pillars of immersion as prose (zh)", () => {
+    const prompt = buildWriterSystemPrompt(
+      BOOK,
+      GENRE,
+      null,
+      "# Book Rules",
+      "# Genre Body",
+      "# Style Guide",
+      undefined,
+      3,
+      "creative",
+      undefined,
+      "zh",
+      "governed",
+    );
+
+    // Constitution and pillars appear as prose section headings.
+    expect(prompt).toContain("## 创作宪法");
+    expect(prompt).toContain("## 代入感六支柱");
+    // Constitution prose beats — verify a few load-bearing phrases ship.
+    expect(prompt).toContain("盐溶于汤");
+    expect(prompt).toContain("全员智商在线");
+    expect(prompt).toContain("拒绝流水账");
+    // Pillar prose beats — ensure six-pillar content is present.
+    expect(prompt).toContain("基础信息标签化");
+    expect(prompt).toContain("可视化熟悉感");
+    expect(prompt).toContain("五感钩子");
+    // Must NOT be rendered as a numbered checklist — writer must internalise.
+    expect(prompt).not.toContain("1. 基础信息标签化");
+    expect(prompt).not.toContain("- 基础信息标签化");
+  });
+
+  it("injects the creative constitution and six pillars of immersion as prose (en)", () => {
+    const prompt = buildWriterSystemPrompt(
+      { ...BOOK, language: "en" },
+      { ...GENRE, language: "en", name: "General" },
+      null,
+      "# Book Rules",
+      "# Genre Body",
+      "# Style Guide",
+      undefined,
+      3,
+      "creative",
+      undefined,
+      "en",
+      "governed",
+    );
+
+    expect(prompt).toContain("## Creative Constitution");
+    expect(prompt).toContain("## Six Pillars of Immersion");
+    expect(prompt).toContain("salt in soup");
+    expect(prompt).toContain("Refuse chronicle drift");
+    expect(prompt).toContain("core tag plus one contrasting detail");
+  });
+
   it("tells governed English prompts to obey variance briefs and include resistance-bearing exchanges", () => {
     const prompt = buildWriterSystemPrompt(
       {
