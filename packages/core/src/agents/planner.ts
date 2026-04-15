@@ -2,7 +2,7 @@ import { readFile, writeFile, mkdir } from "node:fs/promises";
 import { join } from "node:path";
 import { BaseAgent } from "./base.js";
 import type { BookConfig } from "../models/book.js";
-import { parseBookRules } from "../models/book-rules.js";
+import { readBookRules as readAuthoritativeBookRules } from "./rules-reader.js";
 import {
   ChapterIntentSchema,
   type ChapterIntent,
@@ -88,7 +88,12 @@ export class PlannerAgent extends BaseAgent {
       outlineNode,
       input.chapterNumber,
     );
-    const parsedRules = parseBookRules(seedMaterials.bookRulesRaw);
+    // Phase hotfix 5: read structured rules through the Phase 5 authoritative
+    // loader. It prefers outline/story_frame.md frontmatter, falls back to
+    // legacy book_rules.md, and refuses to silently zero out rules when the
+    // legacy file is just a compat shim. Reading raw bookRulesRaw via
+    // parseBookRules() bypassed all of that.
+    const parsedRules = await readAuthoritativeBookRules(input.bookDir);
     const prohibitions = parsedRules?.rules.prohibitions ?? [];
     const mustKeep = this.collectMustKeep(seedMaterials.currentState, seedMaterials.storyBible);
     const mustAvoid = this.collectMustAvoid(seedMaterials.currentFocus, prohibitions);
