@@ -103,18 +103,21 @@ describe("computeHookDiagnostics — Phase 7 stale / blocked detection", () => {
   });
 
   it("renderHookDiagnosticMarker formats zh / en markers correctly", () => {
+    // Hotfix 3: marker now embeds blocked distance (已阻 N 章 / blocked N chapters)
+    // so the reviewer can apply the 5/6-chapter threshold directly.
     const diag = {
       stale: true,
       blocked: true,
       missingUpstream: ["H-up"],
       distance: 20,
       halfLife: 10,
+      blockedDistance: 7,
     } as const;
     expect(renderHookDiagnosticMarker(diag, "zh")).toBe(
-      "过期 (距=20/半衰=10); 受阻于 H-up",
+      "过期 (距=20/半衰=10); 受阻于 H-up (已阻 7 章)",
     );
     expect(renderHookDiagnosticMarker(diag, "en")).toBe(
-      "stale (d=20/half=10); blocked on H-up",
+      "stale (d=20/half=10); blocked on H-up (blocked 7 chapters)",
     );
   });
 
@@ -125,6 +128,7 @@ describe("computeHookDiagnostics — Phase 7 stale / blocked detection", () => {
       missingUpstream: [],
       distance: 1,
       halfLife: 10,
+      blockedDistance: 0,
     } as const;
     expect(renderHookDiagnosticMarker(diag, "zh")).toBe("");
     expect(renderHookDiagnosticMarker(diag, "en")).toBe("");
