@@ -28,7 +28,7 @@ import type { AgentContext } from "../agents/base.js";
 import type { AuditResult, AuditIssue } from "../agents/continuity.js";
 import type { RadarResult } from "../agents/radar.js";
 import type { LengthSpec, LengthTelemetry } from "../models/length-governance.js";
-import type { ContextPackage, RuleStack } from "../models/input-governance.js";
+import type { ChapterMemo, ContextPackage, RuleStack } from "../models/input-governance.js";
 import { buildLengthSpec, countChapterLength, formatLengthCount, isOutsideHardRange, isOutsideSoftRange, resolveLengthCountingMode, type LengthLanguage } from "../utils/length-metrics.js";
 import { analyzeLongSpanFatigue } from "../utils/long-span-fatigue.js";
 import { buildWritingMethodologySection } from "../utils/writing-methodology.js";
@@ -867,6 +867,7 @@ export class PipelineRunner {
         auditOptions: reviseControlInput
           ? {
               chapterIntent: reviseControlInput.plan.intentMarkdown,
+              chapterMemo: reviseControlInput.plan.memo,
               contextPackage: reviseControlInput.composed.contextPackage,
               ruleStack: reviseControlInput.composed.ruleStack,
             }
@@ -937,6 +938,7 @@ export class PipelineRunner {
           ? {
               temperature: 0,
               chapterIntent: reviseControlInput.plan.intentMarkdown,
+              chapterMemo: reviseControlInput.plan.memo,
               contextPackage: reviseControlInput.composed.contextPackage,
               ruleStack: reviseControlInput.composed.ruleStack,
               truthFileOverrides: {
@@ -2651,6 +2653,7 @@ ${matrix}`,
     auditOptions?: {
       temperature?: number;
       chapterIntent?: string;
+      chapterMemo?: ChapterMemo;
       contextPackage?: ContextPackage;
       ruleStack?: RuleStack;
       truthFileOverrides?: {

@@ -155,7 +155,8 @@ describe("ContinuityAuditor", () => {
       const userPrompt = messages?.[1]?.content ?? "";
 
       expect(systemPrompt).toContain("Hook Check");
-      expect(systemPrompt).toContain("Outline Drift Check");
+      expect(systemPrompt).toContain("Chapter Memo Drift Check");
+      expect(systemPrompt).not.toContain("Outline Drift Check");
       expect(systemPrompt).toContain("stays dormant long enough to feel abandoned");
       expect(systemPrompt).toContain("3-question test");
       expect(systemPrompt).toContain("same mode long enough to flatten rhythm");

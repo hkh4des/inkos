@@ -2,7 +2,7 @@ import { BaseAgent } from "./base.js";
 import type { GenreProfile } from "../models/genre-profile.js";
 import type { BookRules } from "../models/book-rules.js";
 import type { FanficMode } from "../models/book.js";
-import type { ContextPackage, RuleStack } from "../models/input-governance.js";
+import type { ChapterMemo, ContextPackage, RuleStack } from "../models/input-governance.js";
 import { readGenreProfile, readBookLanguage, readBookRules } from "./rules-reader.js";
 import { getFanficDimensionConfig, FANFIC_DIMENSIONS } from "./fanfic-dimensions.js";
 import { readFile, readdir } from "node:fs/promises";
@@ -65,7 +65,7 @@ const DIMENSION_LABELS: Record<number, { readonly zh: string; readonly en: strin
   30: { zh: "世界规则跨书一致性", en: "Cross-Book World Rule Check" },
   31: { zh: "番外伏笔隔离", en: "Spinoff Hook Isolation Check" },
   32: { zh: "读者期待管理", en: "Reader Expectation Check" },
-  33: { zh: "大纲偏离检测", en: "Outline Drift Check" },
+  33: { zh: "章节备忘偏离", en: "Chapter Memo Drift Check" },
   34: { zh: "角色还原度", en: "Character Fidelity Check" },
   35: { zh: "世界规则遵守", en: "World Rule Compliance Check" },
   36: { zh: "关系动态", en: "Relationship Dynamics Check" },
@@ -226,8 +226,8 @@ function buildDimensionNote(
         : "检查：章尾是否重新点燃好奇心，已经承诺的回收是否按伏笔自身节奏落地，压力是否得到释放，读者期待缺口是在持续累积还是在被满足。如果刚经历高潮，检查后效章节是否在开启新周期前展示了具体改变。";
     case 33:
       return language === "en"
-        ? "Cross-check volume_outline: does this chapter match the planned beat for the current chapter range? Did it skip planned nodes or consume later nodes too early? Does actual pacing match the planned chapter span? If a beat planned for N chapters is consumed in 1-2 chapters -> critical."
-        : "对照 volume_outline：本章内容是否对应卷纲中当前章节范围的剧情节点？是否跳过了节点或提前消耗了后续节点？剧情推进速度是否与卷纲规划的章节跨度匹配？如果卷纲规划某段剧情跨N章但实际1-2章就讲完→critical";
+        ? "Cross-check the chapter_memo provided with the chapter. Does the final prose deliver the memo's goal and leave a visible trace for every one of the 7 sections it contains (tasks, pay-offs / held-back cards, daily/transition function map, three-question check, end-of-chapter concrete changes, hard-don'ts)? Missing or contradicted sections -> critical. Note: a sparse memo (breather chapter, goal + skeleton body only) is legitimate — only flag drift against sections that the memo actually populates. Never flag the memo itself for being sparse."
+        : "对照随章提供的 chapter_memo。成稿是否兑现了 memo 中的 goal，并在 7 段正文（当前任务 / 该兑现·暂不掀 / 日常过渡功能 / 关键抉择三连问 / 章尾必须发生的改变 / 不要做 等）中留下可见落地痕迹？任何段落缺失或被写反 → critical。提醒：稀疏 memo 合法（喘息章 memo 可以只有 goal + 骨架 body），只检查 memo 实际写出的段落，不能因为 memo 稀疏就判 incomplete。";
     case 34:
     case 35:
     case 36:
@@ -293,7 +293,7 @@ function buildDimensionList(
 
   // Always-active dimensions
   activeIds.add(32); // 读者期待管理 — universal
-  activeIds.add(33); // 大纲偏离检测 — universal
+  activeIds.add(33); // 章节备忘偏离 — universal (replaces legacy volume-outline drift)
 
   // Conditional overrides
   if (gp.eraResearch || bookRules?.eraConstraints?.enabled) {
@@ -347,6 +347,7 @@ export class ContinuityAuditor extends BaseAgent {
     options?: {
       temperature?: number;
       chapterIntent?: string;
+      chapterMemo?: ChapterMemo;
       contextPackage?: ContextPackage;
       ruleStack?: RuleStack;
       truthFileOverrides?: {
@@ -534,10 +535,10 @@ overall_score 评分校准：
         : `\n## 同人正典参照（同人审查专用）\n${fanficCanon}\n`
       : "";
 
-    const outlineBlock = volumeOutline !== "(文件不存在)"
+    const memoBlock = options?.chapterMemo
       ? isEnglish
-        ? `\n## Volume Outline (for outline drift checks)\n${volumeOutline}\n`
-        : `\n## 卷纲（用于大纲偏离检测）\n${volumeOutline}\n`
+        ? `\n## Chapter Memo (for memo drift checks)\nGoal: ${options.chapterMemo.goal}\n\n${options.chapterMemo.body}\n`
+        : `\n## 章节备忘（用于 memo 偏离检测）\ngoal：${options.chapterMemo.goal}\n\n${options.chapterMemo.body}\n`
       : "";
     const reducedControlBlock = options?.chapterIntent && options.contextPackage && options.ruleStack
       ? this.buildReducedControlBlock(options.chapterIntent, options.contextPackage, options.ruleStack, resolvedLanguage)
@@ -560,7 +561,7 @@ overall_score 评分校准：
 ## Current State Card
 ${currentState}
 ${ledgerBlock}
-${hooksBlock}${volumeSummariesBlock}${subplotBlock}${emotionalBlock}${matrixBlock}${summariesBlock}${canonBlock}${fanficCanonBlock}${reducedControlBlock || outlineBlock}${prevChapterBlock}${styleGuideBlock}
+${hooksBlock}${volumeSummariesBlock}${subplotBlock}${emotionalBlock}${matrixBlock}${summariesBlock}${canonBlock}${fanficCanonBlock}${reducedControlBlock}${memoBlock}${prevChapterBlock}${styleGuideBlock}
 
 ## Chapter Content Under Review
 ${chapterContent}`
@@ -569,7 +570,7 @@ ${chapterContent}`
 ## 当前状态卡
 ${currentState}
 ${ledgerBlock}
-${hooksBlock}${volumeSummariesBlock}${subplotBlock}${emotionalBlock}${matrixBlock}${summariesBlock}${canonBlock}${fanficCanonBlock}${reducedControlBlock || outlineBlock}${prevChapterBlock}${styleGuideBlock}
+${hooksBlock}${volumeSummariesBlock}${subplotBlock}${emotionalBlock}${matrixBlock}${summariesBlock}${canonBlock}${fanficCanonBlock}${reducedControlBlock}${memoBlock}${prevChapterBlock}${styleGuideBlock}
 
 ## 待审章节内容
 ${chapterContent}`;

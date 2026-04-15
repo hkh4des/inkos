@@ -76,6 +76,7 @@ export async function runChapterReviewCycle(params: {
       options?: {
         temperature?: number;
         chapterIntent?: string;
+        chapterMemo?: ChapterMemo;
         contextPackage?: ContextPackage;
         ruleStack?: RuleStack;
       },
