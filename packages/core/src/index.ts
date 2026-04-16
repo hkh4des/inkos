@@ -110,6 +110,7 @@ export { getFanficDimensionConfig, FANFIC_DIMENSIONS, type FanficDimensionConfig
 export { buildFanficCanonSection, buildCharacterVoiceProfiles, buildFanficModeInstructions } from "./agents/fanfic-prompt-sections.js";
 
 // Utils
+export { isNewLayoutBook } from "./utils/outline-paths.js";
 export { fetchUrl, searchWeb } from "./utils/web-search.js";
 export { filterHooks, filterSummaries, filterSubplots, filterEmotionalArcs, filterCharacterMatrix } from "./utils/context-filter.js";
 export { extractPOVFromOutline, filterMatrixByPOV, filterHooksByPOV } from "./utils/pov-filter.js";

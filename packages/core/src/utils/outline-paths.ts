@@ -13,8 +13,22 @@
  * legacy file content, or an empty default placeholder.
  */
 
-import { readFile, readdir } from "node:fs/promises";
+import { readFile, readdir, access } from "node:fs/promises";
 import { join } from "node:path";
+
+/**
+ * Detect whether a book uses the Phase 5 new layout (outline/story_frame.md
+ * exists on disk). If yes, story_bible.md / book_rules.md are compat shims.
+ * If no, those files ARE the authoritative source.
+ */
+export async function isNewLayoutBook(bookDir: string): Promise<boolean> {
+  try {
+    await access(join(bookDir, "story", "outline", "story_frame.md"));
+    return true;
+  } catch {
+    return false;
+  }
+}
 
 async function readOr(path: string, fallback: string): Promise<string> {
   try {

@@ -565,11 +565,13 @@ export async function executeAgentTool(
 
       // Whitelist allowed truth files.
       //
-      // Phase 5 hotfix 1: book_rules.md and story_bible.md are REMOVED — they
-      // are pointer shims, not authoritative; writes to them are a silent
-      // no-op to the runtime (which reads outline/story_frame.md). The agent
-      // must instead edit outline/story_frame.md's YAML frontmatter + prose.
+      // Hotfix: story_bible.md and book_rules.md are back in the whitelist —
+      // they are authoritative for pre-Phase-5 books. For new-layout books
+      // (outline/story_frame.md exists) they're compat shims and writes are
+      // blocked below.
+      const LEGACY_SHIM_FILES = new Set(["story_bible.md", "book_rules.md"]);
       const ALLOWED_FLAT_FILES = [
+        "story_bible.md", "book_rules.md",
         "current_state.md", "particle_ledger.md", "pending_hooks.md",
         "chapter_summaries.md", "subplot_board.md", "emotional_arcs.md",
         "character_matrix.md", "style_guide.md",
@@ -599,8 +601,20 @@ export async function executeAgentTool(
         ];
         return JSON.stringify({
           error:
-            `不允许修改文件 "${fileName}"。book_rules.md 和 story_bible.md 是兼容指针，请改写 outline/story_frame.md。允许的文件：${allowedExamples.join(", ")}`,
+            `不允许修改文件 "${fileName}"。允许的文件：${allowedExamples.join(", ")}`,
         });
+      }
+
+      // For new-layout books, story_bible.md / book_rules.md are shims —
+      // block writes so the agent edits outline/story_frame.md instead.
+      if (LEGACY_SHIM_FILES.has(fileName)) {
+        const { isNewLayoutBook } = await import("../utils/outline-paths.js");
+        const bookDirForCheck = new (await import("../state/manager.js")).StateManager(config.projectRoot).bookDir(bookId);
+        if (await isNewLayoutBook(bookDirForCheck)) {
+          return JSON.stringify({
+            error: `"${fileName}" 是兼容指针（新布局书籍），请改写 outline/story_frame.md。`,
+          });
+        }
       }
 
       // Path traversal guard — the whitelist already forbids `..`, but we

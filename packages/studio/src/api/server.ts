@@ -336,7 +336,10 @@ export function createStudioServer(initialConfig: ProjectConfig, root: string) {
     // A legacy book may only have story_bible.md / book_rules.md on disk —
     // we still serve those for read-only display, but flag them so the UI
     // can warn users their edits won't reach the runtime.
-    const legacy = LEGACY_SHIM_FILES.has(file);
+    // Hotfix: only tag as legacy when the book actually HAS the new layout.
+    // Pre-Phase-5 books use story_bible/book_rules as the authoritative source.
+    const { isNewLayoutBook } = await import("@actalk/inkos-core");
+    const legacy = LEGACY_SHIM_FILES.has(file) && await isNewLayoutBook(bookDir);
 
     try {
       const content = await readFile(resolved, "utf-8");
@@ -521,11 +524,16 @@ export function createStudioServer(initialConfig: ProjectConfig, root: string) {
       }
     }
 
+    // Hotfix: only tag shim files as legacy when the book has the new layout.
+    const { isNewLayoutBook } = await import("@actalk/inkos-core");
+    const newLayout = await isNewLayoutBook(bookDir);
+
     async function describe(relPath: string): Promise<{ readonly name: string; readonly size: number; readonly preview: string; readonly legacy?: true } | null> {
       try {
         const content = await readFile(join(storyDir, relPath), "utf-8");
+        const isShim = LEGACY_SHIM_FILES.has(relPath) && newLayout;
         const entry: { readonly name: string; readonly size: number; readonly preview: string; readonly legacy?: true } =
-          LEGACY_SHIM_FILES.has(relPath)
+          isShim
             ? { name: relPath, size: content.length, preview: content.slice(0, 200), legacy: true }
             : { name: relPath, size: content.length, preview: content.slice(0, 200) };
         return entry;
@@ -984,14 +992,17 @@ export function createStudioServer(initialConfig: ProjectConfig, root: string) {
     if (!resolved) {
       return c.json({ error: "Invalid truth file" }, 400);
     }
-    // Legacy pointer shims are read-only: writing story_bible.md or
-    // book_rules.md does nothing at runtime (the pipeline reads outline/
-    // instead), so refuse to accept edits that would silently no-op.
+    // Legacy pointer shims are read-only in new-layout books: writing
+    // story_bible.md or book_rules.md does nothing at runtime (the pipeline
+    // reads outline/ instead). For pre-Phase-5 books these ARE authoritative.
     if (LEGACY_SHIM_FILES.has(file)) {
-      return c.json(
-        { error: "Legacy compat shim; edit outline/story_frame.md instead" },
-        400,
-      );
+      const { isNewLayoutBook } = await import("@actalk/inkos-core");
+      if (await isNewLayoutBook(bookDir)) {
+        return c.json(
+          { error: "Legacy compat shim; edit outline/story_frame.md instead" },
+          400,
+        );
+      }
     }
     const { content } = await c.req.json<{ content: string }>();
     const { writeFile: writeFileFs, mkdir: mkdirFs } = await import("node:fs/promises");
