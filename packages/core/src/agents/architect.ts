@@ -14,23 +14,30 @@ import type { StoredHook } from "../state/memory-db.js";
 
 // ---------------------------------------------------------------------------
 // Phase 5 (v13) — Static 骨架 layer collapse
-// Phase 5 consolidation — 7 sections → 5 sections (output shrinks ~25–40%).
+// Phase 5 consolidation — 7 sections → 6 sections (output shrinks ~20–35%).
 //
 // Architect now produces 2 prose outline files + one-file-per-character roles/
-// folder, plus compat pointer shims. The LLM output contract is now 5 blocks:
+// folder, plus compat pointer shims. The LLM output contract is now 6 blocks:
 //
 //   === SECTION: story_frame ===   4 散文段（主题 / 冲突 / 世界铁律+质感 / 终局）
-//   === SECTION: volume_map ===    5 散文段 + 尾段「本书具体化的 6 条节奏原则」
+//   === SECTION: volume_map ===    5 散文段 + 尾段「6 条节奏原则（具体化 + 通用）」
 //   === SECTION: roles ===         一人一卡；主角卡承载完整弧线（起点→终点→代价）
 //   === SECTION: book_rules ===    仅 YAML frontmatter，零散文
+//   === SECTION: current_state ===  500-800 chars，仅「非角色非钩子」的环境/时代锚
 //   === SECTION: pending_hooks ===  13-column 表；可含 startChapter=0 种子行
 //
 // Consolidation rules (MUST reflect in prompt):
 //   - 主角弧线只写在 roles/<主角>.md，不在 story_frame 重复
 //   - 世界铁律/世界质感只写在 story_frame.世界观底色，不在 book_rules 重复
 //   - 节奏原则只写在 volume_map 尾段，不作为独立 section
-//   - 初始状态（第 0 章）拆散到 roles.当前现状 + pending_hooks (startChapter=0)
-//     — 不再作为独立 current_state section
+//     （至少 3 条具体化，其余可为通用原则）
+//   - 初始状态拆分：角色当前现状 → roles.当前现状；初始钩子 → pending_hooks (startChapter=0)；
+//     环境/时代/大局锚 → current_state（窄化后的 500-800 chars prose 段）
+//
+// Budget table (8 content items — 6 LLM sections + 2 structural bounds):
+//   story_frame ≤ 3000 chars / volume_map ≤ 5000 chars / roles 总 ≤ 8000 chars
+//   book_rules ≤ 500 chars (YAML only) / current_state 500-800 chars
+//   pending_hooks ≤ 2000 chars
 //
 // 输出落盘 contract（未变）：
 //   outline/story_frame.md      ← 4 prose sections + YAML frontmatter
@@ -122,7 +129,7 @@ export class ArchitectAgent extends BaseAgent {
       : this.buildChineseFoundationPrompt(book, gp, genreBody, contextBlock, reviewFeedbackBlock, numericalBlock, powerBlock, eraBlock);
 
     const langPrefix = resolvedLanguage === "en"
-      ? `【LANGUAGE OVERRIDE】ALL output (story_frame, volume_map, roles, book_rules, pending_hooks) MUST be written in English. Character names, place names, and all prose must be in English. The === SECTION: === tags remain unchanged. Do NOT emit rhythm_principles or current_state sections — they have been consolidated away.\n\n`
+      ? `【LANGUAGE OVERRIDE】ALL output (story_frame, volume_map, roles, book_rules, current_state, pending_hooks) MUST be written in English. Character names, place names, and all prose must be in English. The === SECTION: === tags remain unchanged. Do NOT emit a rhythm_principles section — rhythm principles live inside the last paragraph of volume_map. current_state is narrowed to 500-800 chars of non-character, non-hook environment/era/macro prose.\n\n`
       : "";
     const userMessage = resolvedLanguage === "en"
       ? `Generate the complete foundation for a ${gp.name} novel titled "${book.title}". Write everything in English.`
@@ -166,16 +173,17 @@ ${numericalBlock}
 ${powerBlock}
 ${eraBlock}
 
-## 输出结构（5 个 SECTION，严格按 === SECTION: === 分块，不要漏任何一块）
+## 输出结构（6 个 SECTION，严格按 === SECTION: === 分块，不要漏任何一块）
 
 ## 去重铁律（必读）
-禁止在多段里重复同一事实。主角弧线只写在 roles；世界铁律只写在 story_frame.世界观底色；节奏原则只写在 volume_map 最后一段。如果一个段落写了另一段的内容，删掉。
+禁止在多段里重复同一事实。主角弧线只写在 roles；世界铁律只写在 story_frame.世界观底色；节奏原则只写在 volume_map 最后一段；角色当前现状只写在 roles.当前现状；初始钩子只写在 pending_hooks（startChapter=0 行）；环境/时代/大局锚只写在 current_state。如果一个段落写了另一段的内容，删掉。
 
 ## 预算（超预算必删）
 - story_frame ≤ 3000 chars
 - volume_map ≤ 5000 chars
 - roles 总 ≤ 8000 chars
 - book_rules ≤ 500 chars（仅 YAML）
+- current_state 500-800 chars（窄化后的环境/时代/大局散文段）
 - pending_hooks ≤ 2000 chars
 
 === SECTION: story_frame ===
@@ -213,13 +221,13 @@ ${eraBlock}
 ### 段 5：卷尾必须发生的改变
 每一卷最后一章必须发生什么不可逆的事——权力结构改变、关系破裂、秘密暴露、主角身份重定位。写散文，一卷一段。
 
-### 段 6：节奏原则与本书具体化（必须具体不抽象）
-**这是节奏原则的唯一归宿，不再有独立 rhythm_principles section。** 针对这本书写 6 条具体原则，反面例子："节奏要张弛有度"（废话）。正面例子："前 30 章每 5 章一个小爽点，且小爽点必须落在章末 300 字内"。6 条各写 2-3 句，具体到章号区间：
-1. 高潮间距——本书大高潮之间最长多少章？为什么？
+### 段 6：节奏原则（具体化 + 通用）
+**这是节奏原则的唯一归宿，不再有独立 rhythm_principles section。** 本段输出 6 条节奏原则。**至少 3 条必须具体化到本书**（例："前 30 章每 5 章一个小爽点"），其余可保留通用原则（例："拒绝机械降神"、"高潮前 3-5 章埋伏笔"）。具体化 + 通用混合是合法的。反面例子："节奏要张弛有度"（废话）。正面例子："前 30 章每 5 章一个小爽点，且小爽点必须落在章末 300 字内"。6 条各写 2-3 句，覆盖（顺序不强制、可替换同权重议题）：
+1. 高潮间距——本书大高潮之间最长多少章？（具体化优先）
 2. 喘息频率——高压段多长必须插一章喘息？喘息章承担什么任务？
 3. 钩子密度——每章章末留钩数量，主钩最多允许悬多少章？
-4. 信息释放节奏——主线信息在前 1/3、中段、后 1/3 分别释放多少比例？
-5. 爽点节奏——爽点间距多少章一个？什么类型为主？
+4. 信息释放节奏——主线信息在前 1/3、中段、后 1/3 分别释放多少比例？（可通用）
+5. 爽点节奏——爽点间距多少章一个？什么类型为主？（具体化优先）
 6. 情感节点递进——情感关系每多少章必须有一次实质推进？
 
 === SECTION: roles ===
@@ -245,7 +253,7 @@ name: <角色名>
 **只有主角必须写本段；其他 major 角色如果弧线分量重也可以写，否则略过。**主角从哪里出发（身份、处境、核心缺陷、一开始最想要什么），到哪里落脚（最终变成什么样的人、拿到/失去什么），为了这个落脚他付出了什么不可逆的代价（关系、身体、信念、某段过去）。不要只写"变强"这种平面变化，要写**内在的位移**。本段是之前 story_frame.段 2 迁移过来的权威位置，写足写实。
 
 ## 当前现状（第 0 章初始状态）
-（第 0 章时他在哪、做什么、处境如何、最近最烦心的事。这段同时承担原先独立 current_state section 的初始状态字段，不再有独立 current_state 块。）
+（第 0 章时他在哪、做什么、处境如何、最近最烦心的事。**只写角色个人处境**——环境/时代/大局锚写在独立的 current_state section；初始钩子写在 pending_hooks 的 startChapter=0 行。）
 
 ## 关系网络
 （与主角、与其他重要角色的关系——一句话一条，关系不是标签是动态。）
@@ -297,6 +305,16 @@ enableFullCastTracking: false
 ---
 \`\`\`
 
+=== SECTION: current_state ===
+
+**职能窄化**：这一段只写**非角色、非钩子的环境/时代/大局初始态**。
+- 写什么：时代锚（年份 / 季节 / 重大历史事件坐标）、空间锚（主要场景的当下状态）、社会/经济/政治大环境
+- 不写：主角/配角的个人处境（→ roles.当前现状）、初始钩子/悬念（→ pending_hooks 起始行）
+- 预算：500-800 chars
+- 用 prose 段落，不要列表
+
+例："2003 年 8 月。非典刚结束，城市街头还留着消毒水和口罩的气味。经济复苏前夜——楼市尚未起飞，出租屋月租不过两三百。码头正在沉默地复工，装卸工人重新排起长队；区政府大楼外墙仍挂着'打赢疫情攻坚战'的红幅，但写字楼里已经有人悄悄讨论来年的楼盘认购。"
+
 === SECTION: pending_hooks ===
 
 初始伏笔池（Markdown表格），Phase 7 扩展列：
@@ -311,7 +329,7 @@ enableFullCastTracking: false
 - 第10列「核心」：是否主线承重伏笔 true / false。主线承重伏笔一本书最多 3-7 条（主谜团、身世、核心承诺），其余次要伏笔填 false
 - 第11列「半衰期」：可选，整数章数。若不填自动按回收节奏推导（立即/近期 = 10、中程 = 30、慢烧/终局 = 80）
 - 初始线索放备注列，不放第5列
-- **初始世界状态 / 初始敌我关系** 如果有关键信息（例如"主角身上带着父亲的笔记本"、"体制已经开始监视码头"），可以作为 startChapter=0 的种子行录入，备注列说明其"初始状态"属性。这替代了原先独立 current_state section 的结构化字段。
+- **初始世界状态 / 初始敌我关系** 如果有关键信息（例如"主角身上带着父亲的笔记本"、"体制已经开始监视码头"），可以作为 startChapter=0 的种子行录入，备注列说明其"初始状态"属性。——注：环境/时代/大局锚请写在独立的 current_state section，不要挤进这张表。
 
 ## 最后强调
 - 符合${book.platform}平台口味、${gp.name}题材特征
@@ -319,7 +337,8 @@ enableFullCastTracking: false
 - 伏笔前后呼应、配角有独立动机不是工具人
 - **story_frame / volume_map / roles 必须是散文密度，不要退化成 bullet**
 - **book_rules 只留 YAML，不要写散文**
-- **不要输出 rhythm_principles 或 current_state 两个独立 section**——它们已被合并/删除
+- **不要输出 rhythm_principles 独立 section**——节奏原则合并进 volume_map 尾段
+- **current_state 职能窄化**：只写非角色、非钩子的环境/时代/大局散文，500-800 chars；角色初始状态去 roles.当前现状，初始钩子去 pending_hooks
 - **pending_hooks 表必须包含 Phase 7 扩展列——depends_on 标出因果链、pays_off_in_arc 锁定回收大致位置、core_hook 标记主线承重伏笔（3-7 条）、half_life 仅给重点伏笔设置**`;
   }
 
@@ -350,16 +369,17 @@ ${numericalBlock}
 ${powerBlock}
 ${eraBlock}
 
-## Output contract (5 === SECTION: === blocks)
+## Output contract (6 === SECTION: === blocks)
 
 ## Deduplication rule (MANDATORY)
-Do not duplicate the same fact across sections. The protagonist's arc lives only in roles; world hard-rules live only in story_frame; rhythm principles live only in the last paragraph of volume_map. If a section repeats content that belongs elsewhere, delete it.
+Do not duplicate the same fact across sections. The protagonist's arc lives only in roles; world hard-rules live only in story_frame; rhythm principles live only in the last paragraph of volume_map; character initial status lives only in roles.Current_State; initial hooks live only in pending_hooks (start_chapter=0 rows); environment/era/macro initial state lives only in current_state. If a section repeats content that belongs elsewhere, delete it.
 
 ## Output budget (over-budget means cut)
 - story_frame ≤ 3000 chars
 - volume_map ≤ 5000 chars
 - roles ≤ 8000 chars total
 - book_rules ≤ 500 chars (YAML only)
+- current_state 500-800 chars (narrowed: env/era/macro prose only)
 - pending_hooks ≤ 2000 chars
 
 === SECTION: story_frame ===
@@ -397,8 +417,8 @@ Protagonist's state at end of vol 1, vol 2, ... Supporting characters' stage cha
 ## 05_Volume_End_Mandatory_Changes
 Each volume's last chapter must contain an irreversible event. Prose, one paragraph per volume.
 
-## 06_Rhythm_Principles_Concretised (ONLY place rhythm principles live)
-**This is the single home for rhythm principles — no separate rhythm_principles section exists.** Write 6 concrete principles for THIS book. Bad: "rhythm must balance tension and release". Good: "every 5 chapters in the first 30 carries a small payoff landing in the last 300 chars of the chapter". Cover: (1) climax spacing, (2) breath frequency, (3) hook density, (4) information release pacing, (5) payoff rhythm, (6) relationship advancement — each 2-3 sentences with concrete chapter ranges.
+## 06_Rhythm_Principles (concrete + universal)
+**This is the single home for rhythm principles — no separate rhythm_principles section exists.** Output 6 rhythm principles. **At least 3 must be concretized for this book** (e.g., "every 5 chapters in the first 30, hit one small payoff"); the rest may stay as universal rules (e.g., "no deus ex machina", "plant the foreshadow 3-5 chapters before the climax"). A mix of concrete + universal is valid. Bad: "rhythm must balance tension and release". Good: "every 5 chapters in the first 30 carries a small payoff landing in the last 300 chars of the chapter". Cover (order flexible, substitutions of equal weight are allowed): (1) climax spacing, (2) breath frequency, (3) hook density, (4) information release pacing, (5) payoff rhythm, (6) relationship advancement — each 2-3 sentences.
 
 === SECTION: roles ===
 
@@ -421,7 +441,7 @@ name: <character name>
 **Mandatory for the protagonist; optional for other majors with substantial arcs.** Where they start (identity, situation, core flaw, initial desire); where they land (who they become, what they gain or lose); the irreversible cost they pay for that landing. Show internal displacement, not just growth. This section absorbs what used to live in story_frame.02_Protagonist_Arc.
 
 ## Current_State (initial state at chapter 0)
-(Where they are at chapter 0, what's on their mind, most recent worry. This also absorbs the fields that used to live in the separate current_state section — no separate current_state block is produced any more.)
+(Where they are at chapter 0, what's on their mind, most recent worry. **Character-only**: environment / era / macro anchors go in the separate current_state section; initial hooks go in pending_hooks start_chapter=0 rows.)
 
 ## Relationship_Network
 (With protagonist, with other major characters. One line each. Relationships are dynamic, not labels.)
@@ -473,6 +493,16 @@ enableFullCastTracking: false
 ---
 \`\`\`
 
+=== SECTION: current_state ===
+
+**Narrow scope**: non-character, non-hook environment/era/macro initial state only.
+- Include: era anchors (year / season / historic markers), spatial anchors (key scenes' current status), social/economic/political macro
+- Exclude: protagonist or supporting character personal status (→ roles.当前现状), initial hooks/suspense (→ pending_hooks startChapter=0)
+- Budget: 500-800 chars
+- Prose paragraph; no lists
+
+Example: "August 2003. SARS has just ended; the city streets still smell of disinfectant and mask cloth. Pre-recovery — the housing market hasn't taken off yet, rent still runs two or three hundred a month. The harbor is quietly resuming work, dockhands queuing up again; the district office building still carries the red banner from the outbreak campaign, but inside the office towers people have started whispering about next year's property launches."
+
 === SECTION: pending_hooks ===
 
 Initial hook pool (Markdown table), Phase 7 extended columns:
@@ -487,7 +517,7 @@ Rules:
 - Column 10 (core_hook): true / false. Core hooks are main-line load-bearing (central mystery, identity, key promise). A book typically has 3-7 cores; everything else is false
 - Column 11 (half_life): optional integer chapters. If blank, derived from payoff_timing (immediate/near-term = 10, mid-arc = 30, slow-burn/endgame = 80)
 - Put initial signal text in notes, not column 5
-- **Initial world / alliance state**: any load-bearing initial condition ("protagonist carries the father's notebook", "the regime already watches the harbor") can be seeded as a start_chapter=0 row with a note-column tag indicating its initial-state nature. This replaces the structured fields of the removed current_state section.
+- **Initial world / alliance state**: any load-bearing initial condition ("protagonist carries the father's notebook", "the regime already watches the harbor") can be seeded as a start_chapter=0 row with a note-column tag indicating its initial-state nature. — Note: environment / era / macro anchors belong in the separate current_state section, not this table.
 
 ## Final emphasis
 - Fit ${book.platform} platform taste and ${gp.name} genre traits
@@ -495,7 +525,8 @@ Rules:
 - Hooks planted with payoff promises; supporting characters have independent motivation
 - **story_frame / volume_map / roles must be prose density — no bullet-list degradation**
 - **book_rules is YAML only — no prose body**
-- **Do NOT emit rhythm_principles or current_state as separate sections** — both have been merged / removed
+- **Do NOT emit rhythm_principles as a separate section** — rhythm principles live in the last paragraph of volume_map
+- **current_state is narrow**: non-character, non-hook env/era/macro prose, 500-800 chars; character initial status goes in roles.Current_State, initial hooks go in pending_hooks
 - **pending_hooks table MUST carry Phase 7 extended columns — depends_on spells out the causal chain, pays_off_in_arc locks the approximate payoff location, core_hook marks main-line load-bearing hooks (3-7 per book), half_life only on priority hooks**`;
   }
 
@@ -527,15 +558,18 @@ Rules:
     const legacyStoryBible = parsedSections.get("story_bible") ?? "";
     const legacyVolumeOutline = parsedSections.get("volume_outline") ?? "";
     const bookRules = parsedSections.get("book_rules");
-    // Phase 5 consolidation: current_state is no longer a required section.
-    // Legacy books (v12 / Phase 5 initial) and import/fanfic regenerations
-    // may still produce it — accept the value when present, fall through to
-    // empty seed when absent (consolidator will populate at runtime).
-    const currentStateLegacy = parsedSections.get("current_state") ?? "";
+    // Phase 5 consolidation fix: current_state restored as a required section,
+    // scope-narrowed to 500-800 chars of non-character, non-hook env/era/macro
+    // prose. Character initial status still lives in roles.Current_State;
+    // initial hooks still live in pending_hooks start_chapter=0 rows. The
+    // fallback reader (readCurrentStateWithFallback) stays in place for
+    // pre-fix books that happen to have empty current_state on disk.
+    const currentStateRaw = parsedSections.get("current_state");
     const pendingHooksRaw = parsedSections.get("pending_hooks");
 
-    // 5-section required contract: story_frame (or legacy story_bible),
-    // volume_map (or legacy volume_outline), roles, book_rules, pending_hooks.
+    // 6-section required contract: story_frame (or legacy story_bible),
+    // volume_map (or legacy volume_outline), roles, book_rules, current_state,
+    // pending_hooks.
     //
     // Backward compat: v12 outputs used story_bible/volume_outline and
     // embedded character data inside story_bible — they had no roles block.
@@ -552,6 +586,13 @@ Rules:
     if (!effectiveVolumeMap) missing.push("volume_map");
     if (!rolesRaw.trim() && !usingLegacyOutlineNames) missing.push("roles");
     if (!bookRules) missing.push("book_rules");
+    // current_state is required again post-fix. Legacy outputs that used the
+    // Phase 5 initial layout (no current_state) are rare — for those, the
+    // fallback reader derives a substitute block at runtime from roles +
+    // hooks, so we keep accepting an empty string as long as the section
+    // header is present (LLM may emit an empty block for a book that truly
+    // has nothing macro to say).
+    if (currentStateRaw === undefined) missing.push("current_state");
     if (!pendingHooksRaw) missing.push("pending_hooks");
     if (missing.length > 0) {
       throw new Error(
@@ -574,10 +615,11 @@ Rules:
       storyBible,
       volumeOutline,
       bookRules: bookRules!,
-      // currentState: empty string when architect no longer emits the section;
-      // writeFoundationFiles seeds current_state.md with a placeholder so
-      // consolidator / state-bootstrap readers find a valid file on first boot.
-      currentState: currentStateLegacy,
+      // current_state is required again post-consolidation-fix. The architect
+      // writes 500-800 chars of non-character, non-hook env/era/macro prose.
+      // When the LLM emits an empty section, writeFoundationFiles falls back
+      // to the seed placeholder so consumers still see a valid file on disk.
+      currentState: currentStateRaw ?? "",
       pendingHooks,
       storyFrame: effectiveStoryFrame,
       volumeMap: effectiveVolumeMap,
@@ -731,12 +773,14 @@ Rules:
       "utf-8",
     ));
 
-    // Runtime state files (untouched by Phase 5)
-    // Phase 5 consolidation: architect no longer emits a current_state section,
-    // so output.currentState is usually empty. We still write the file — with
-    // a minimal seed — so isCompleteBookDirectory() sees it and the first
-    // consolidator pass has somewhere to append. Legacy books / imports that
-    // still produced the section keep their content as-is.
+    // Runtime state files.
+    // Phase 5 consolidation fix: architect emits a narrow current_state
+    // section (500-800 chars, env/era/macro prose only). When the LLM's
+    // output is empty (rare — only happens for books with nothing macro to
+    // say), we fall back to the seed placeholder so isCompleteBookDirectory()
+    // still sees a valid file and the consolidator has somewhere to append.
+    // Per-character state still lives in roles/*.Current_State; initial hook
+    // rows still live in pending_hooks with start_chapter=0.
     const currentStateSeed = output.currentState?.trim()
       ? output.currentState
       : (language === "en"
@@ -825,7 +869,7 @@ ${numericalBlock}
 ${continuationDirective}
 
 ## Output contract
-Follow the consolidated 5-section === SECTION: === layout: story_frame, volume_map, roles, book_rules, pending_hooks. Do NOT emit rhythm_principles or current_state — rhythm principles live in the last paragraph of volume_map, initial state facts live in roles.Current_State and (optionally) pending_hooks start_chapter=0 rows.
+Follow the consolidated 6-section === SECTION: === layout: story_frame, volume_map, roles, book_rules, current_state, pending_hooks. Do NOT emit rhythm_principles — rhythm principles live in the last paragraph of volume_map. current_state is narrow (500-800 chars of non-character, non-hook environment/era/macro prose). Character initial status lives in roles.Current_State; initial hooks live in pending_hooks start_chapter=0 rows.
 
 All prose must be derived from the source text. Do not invent settings. For volume_map, treat existing chapters as "review" (one paragraph) and continuation as prose chapter-level planning. Hook extraction must be complete (every unresolved clue).
 
@@ -846,7 +890,7 @@ ${numericalBlock}
 ${continuationDirective}
 
 ## 输出契约
-合并后的 5 段 === SECTION: === 结构：story_frame / volume_map / roles / book_rules / pending_hooks。**不要输出 rhythm_principles 或 current_state 两个 section**——节奏原则合并进 volume_map 尾段，初始状态字段合并进 roles.当前现状（以及可选的 pending_hooks startChapter=0 行）。
+合并后的 6 段 === SECTION: === 结构：story_frame / volume_map / roles / book_rules / current_state / pending_hooks。**不要输出 rhythm_principles**——节奏原则合并进 volume_map 尾段。current_state 职能窄化：500-800 chars 的非角色、非钩子环境/时代/大局散文。角色初始状态写在 roles.当前现状；初始钩子写在 pending_hooks startChapter=0 行。
 
 所有 prose 必须从正文中推导，不得臆造。volume_map 中，已有章节作为"回顾段"（一段散文），续写部分写到章级 prose。伏笔识别要完整（所有悬而未决的线索）。`;
 
@@ -899,7 +943,7 @@ ${fanficCanon}
 ${genreBody}
 
 ## 输出契约
-严格按合并后的 5 段 === SECTION: === 块输出：story_frame / volume_map / roles / book_rules / pending_hooks。**不要输出 rhythm_principles 或 current_state**（节奏原则合并进 volume_map 尾段；初始状态合并进 roles.当前现状）。
+严格按合并后的 6 段 === SECTION: === 块输出：story_frame / volume_map / roles / book_rules / current_state / pending_hooks。**不要输出 rhythm_principles**（节奏原则合并进 volume_map 尾段）。current_state 职能窄化：500-800 chars 非角色、非钩子的环境/时代/大局散文；角色初始状态写在 roles.当前现状，初始钩子写在 pending_hooks startChapter=0 行。
 
 - 主要角色必须来自原作正典
 - 可添加原创配角，标注"原创"
