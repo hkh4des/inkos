@@ -8,6 +8,7 @@ import {
   type InteractionSession,
 } from "@actalk/inkos-core";
 import { Box, Text, useApp, useInput } from "ink";
+import { processTuiAgentInput } from "./agent-input.js";
 import { describeActivityState } from "./activity-state.js";
 import { resolveComposerCaretState } from "./composer-caret.js";
 import { resolveChatDepthProfile, type ChatDepth } from "./chat-depth.js";
@@ -32,6 +33,20 @@ import {
   ROLE_USER, ROLE_SYSTEM,
   isAppleTerminal,
 } from "./theme.js";
+
+function shouldUseLegacyTuiInteraction(intent: InteractionIntentType): boolean {
+  switch (intent) {
+    case "list_books":
+    case "show_book_draft":
+    case "discard_book_draft":
+    case "select_book":
+    case "pause_book":
+    case "switch_mode":
+      return true;
+    default:
+      return false;
+  }
+}
 
 export interface InkTuiDashboardProps {
   readonly locale: TuiLocale;
@@ -373,27 +388,40 @@ export function InkTuiApp(props: InkTuiAppProps): React.JSX.Element {
         appendSystemNote(copy.notes.newBookGuide);
       }
 
-      const result = await processProjectInteractionInput({
-        projectRoot: props.projectRoot,
-        input,
-        tools: props.tools,
-        activeBookId,
-      });
-      const summary = formatTuiResult({
-        intent: result.request.intent,
-        status: result.session.currentExecution?.status ?? "completed",
-        bookId: result.session.activeBookId,
-        mode: result.request.mode,
-        responseText: result.responseText,
-        locale: props.locale,
-      });
-      const nextSession = appendInteractionMessage(result.session, {
-        role: "assistant",
-        content: summary,
-        timestamp: Date.now(),
-      });
-      await persistProjectSession(props.projectRoot, nextSession);
-      setSession(nextSession);
+      if (shouldUseLegacyTuiInteraction(routed.intent)) {
+        const result = await processProjectInteractionInput({
+          projectRoot: props.projectRoot,
+          input,
+          tools: props.tools,
+          activeBookId,
+        });
+        const summary = formatTuiResult({
+          intent: result.request.intent,
+          status: result.session.currentExecution?.status ?? "completed",
+          bookId: result.session.activeBookId,
+          mode: result.request.mode,
+          responseText: result.responseText,
+          locale: props.locale,
+        });
+        const nextSession = appendInteractionMessage(result.session, {
+          role: "assistant",
+          content: summary,
+          timestamp: Date.now(),
+        });
+        await persistProjectSession(props.projectRoot, nextSession);
+        setSession(nextSession);
+      } else {
+        const result = await processTuiAgentInput({
+          projectRoot: props.projectRoot,
+          input,
+          session,
+          activeBookId,
+          onTextDelta: (text) => {
+            props.chatStreamBridge?.onTextDelta?.(text);
+          },
+        });
+        setSession(result.session);
+      }
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       const failedSession = await loadProjectSession(props.projectRoot);
