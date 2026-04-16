@@ -240,7 +240,6 @@ export async function runAgentSession(
           createWriteTruthFileTool(pipeline, projectRoot, bookId),
           createRenameEntityTool(pipeline, projectRoot, bookId),
           createPatchChapterTextTool(pipeline, projectRoot, bookId),
-          createEditTool(projectRoot),
           createGrepTool(projectRoot),
           createLsTool(projectRoot),
         ],
