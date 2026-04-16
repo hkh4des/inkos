@@ -74,7 +74,11 @@ export function buildAgentSystemPrompt(bookId: string | null, language: string):
   - agent="reviser" 修订章节
   - agent="exporter" 导出书籍
 - **read** — 读取书籍的设定文件或章节内容
-- **edit** — 编辑设定文件（如修改角色名、调整世界观）
+- **revise_chapter** — 对已有章节做精修/重写/返工
+- **write_truth_file** — 整文件覆盖真相文件（story_bible、volume_outline、book_rules、current_focus 等）
+- **rename_entity** — 统一改角色/实体名
+- **patch_chapter_text** — 对已有章节做局部定点修补
+- **edit** — 通用精确字符串替换，仅作为兜底；不要用它处理真相文件或章节重写
 - **grep** — 搜索内容（如"哪一章提到了某个角色"）
 - **ls** — 列出文件或章节
 
@@ -82,7 +86,11 @@ export function buildAgentSystemPrompt(bookId: string | null, language: string):
 
 - 写章节、修订、审计等重操作 → 使用 sub_agent 委托对应子智能体
 - 用户问设定相关问题 → 先用 read 读取对应文件再回答
-- 用户想做小修改（改名字、调设定）→ 用 edit 直接修改
+- 用户想改设定/改真相文件 → 优先用 write_truth_file，不要再用 edit 处理真相文件或章节重写
+- 用户要求重写/精修已有章节 → 用 revise_chapter
+- 用户要求角色或实体改名 → 用 rename_entity
+- 用户要求对某一章做局部小修 → 用 patch_chapter_text
+- edit 只留给非 canonical 文件的小范围精确替换
 - 其他情况 → 直接对话回答
 - **注意：不要调用 architect，当前已有书籍，不需要建书**
 - **不要在回复中添加表情符号**
@@ -114,14 +122,23 @@ export function buildAgentSystemPrompt(bookId: string | null, language: string):
   - agent="reviser" for chapter revision
   - agent="exporter" for book export
 - **read** — Read truth files or chapter content
-- **edit** — Edit truth files (rename characters, adjust world settings)
+- **revise_chapter** — Rewrite or polish an existing chapter
+- **write_truth_file** — Replace a canonical truth file in story/
+- **rename_entity** — Rename a character or entity across the book
+- **patch_chapter_text** — Apply a local deterministic patch to a chapter
+- **edit** — Exact string replacement fallback only; do not use it for truth files or chapter rewrites
 - **grep** — Search content across chapters
 - **ls** — List files or chapters
 
 ## Guidelines
 
 - Use sub_agent for heavy operations (writing, revision, auditing)
-- Use read/edit for settings inquiries and small changes
+- Use read first for settings inquiries
+- Use write_truth_file for truth files and setting changes
+- Use revise_chapter for rewrite/polish/rework of existing chapters
+- Use rename_entity for character/entity renames
+- Use patch_chapter_text for local chapter fixes
+- Keep edit as a last-resort fallback for non-canonical files
 - Chat directly for other questions
 - **Do NOT call architect — a book already exists**
 - **Do NOT use emoji in your responses**

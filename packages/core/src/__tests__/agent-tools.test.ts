@@ -1,0 +1,122 @@
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { StateManager } from "../state/manager.js";
+import {
+  createPatchChapterTextTool,
+  createRenameEntityTool,
+  createReviseChapterTool,
+  createWriteTruthFileTool,
+} from "../agent/agent-tools.js";
+
+describe("agent deterministic writing tools", () => {
+  let root: string;
+  let state: StateManager;
+
+  beforeEach(async () => {
+    root = await mkdtemp(join(tmpdir(), "inkos-agent-tools-"));
+    state = new StateManager(root);
+
+    await state.saveBookConfig("harbor", {
+      id: "harbor",
+      title: "Harbor",
+      platform: "tomato",
+      genre: "other",
+      status: "active",
+      targetChapters: 20,
+      chapterWordCount: 3000,
+      createdAt: "2026-04-16T00:00:00.000Z",
+      updatedAt: "2026-04-16T00:00:00.000Z",
+    });
+
+    await mkdir(join(state.bookDir("harbor"), "story", "runtime"), { recursive: true });
+    await mkdir(join(state.bookDir("harbor"), "chapters"), { recursive: true });
+    await writeFile(join(state.bookDir("harbor"), "story", "story_bible.md"), "# Story Bible\n\nLin Yue guards the jade seal.\n", "utf-8");
+    await writeFile(join(state.bookDir("harbor"), "chapters", "0003_Storm.md"), "# 第3章 风暴\n\nLin Yue kept the jade seal hidden.\n", "utf-8");
+    await state.saveChapterIndex("harbor", [{
+      number: 3,
+      title: "风暴",
+      status: "ready-for-review",
+      wordCount: 120,
+      createdAt: "2026-04-16T00:00:00.000Z",
+      updatedAt: "2026-04-16T00:00:00.000Z",
+      auditIssues: [],
+      lengthWarnings: [],
+    }]);
+  });
+
+  afterEach(async () => {
+    await rm(root, { recursive: true, force: true });
+  });
+
+  it("writes truth files through the deterministic tool path", async () => {
+    const tool = createWriteTruthFileTool({} as never, root, "harbor");
+
+    const result = await tool.execute("tool-1", {
+      fileName: "story_bible.md",
+      content: "# Story Bible\n\nLin Yue now distrusts the guild.\n",
+    });
+
+    expect(result.content[0]?.type).toBe("text");
+    await expect(readFile(join(state.bookDir("harbor"), "story", "story_bible.md"), "utf-8"))
+      .resolves.toContain("distrusts the guild");
+  });
+
+  it("routes chapter rewrite requests through reviseDraft with the requested mode", async () => {
+    const pipeline = {
+      reviseDraft: vi.fn(async () => ({
+        chapterNumber: 3,
+        wordCount: 1300,
+        fixedIssues: [],
+        applied: true,
+        status: "ready-for-review" as const,
+      })),
+    };
+    const tool = createReviseChapterTool(pipeline as never, "harbor");
+
+    const result = await tool.execute("tool-2", {
+      chapterNumber: 3,
+      mode: "rewrite",
+    });
+
+    expect(pipeline.reviseDraft).toHaveBeenCalledWith("harbor", 3, "rewrite");
+    expect(result.content[0]?.type).toBe("text");
+  });
+
+  it("renames entities through the deterministic edit controller", async () => {
+    const tool = createRenameEntityTool({} as never, root, "harbor");
+
+    await tool.execute("tool-3", {
+      oldValue: "Lin Yue",
+      newValue: "Lin Yan",
+    });
+
+    await expect(readFile(join(state.bookDir("harbor"), "story", "story_bible.md"), "utf-8"))
+      .resolves.toContain("Lin Yan");
+    await expect(readFile(join(state.bookDir("harbor"), "chapters", "0003_Storm.md"), "utf-8"))
+      .resolves.toContain("Lin Yan");
+  });
+
+  it("patches chapter text through the deterministic edit controller", async () => {
+    const tool = createPatchChapterTextTool({} as never, root, "harbor");
+
+    await tool.execute("tool-4", {
+      chapterNumber: 3,
+      targetText: "jade seal hidden",
+      replacementText: "jade seal locked beneath the altar",
+    });
+
+    await expect(readFile(join(state.bookDir("harbor"), "chapters", "0003_Storm.md"), "utf-8"))
+      .resolves.toContain("locked beneath the altar");
+    await expect(state.loadChapterIndex("harbor")).resolves.toEqual([
+      expect.objectContaining({
+        number: 3,
+        status: "audit-failed",
+        auditIssues: expect.arrayContaining([
+          expect.stringContaining("Manual text edit requires review"),
+        ]),
+      }),
+    ]);
+  });
+});

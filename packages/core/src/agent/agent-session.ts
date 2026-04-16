@@ -5,11 +5,15 @@ import type { Model, Api, AssistantMessage, UserMessage } from "@mariozechner/pi
 import type { PipelineRunner } from "../pipeline/runner.js";
 import { buildAgentSystemPrompt } from "./agent-system-prompt.js";
 import {
+  createPatchChapterTextTool,
+  createRenameEntityTool,
   createSubAgentTool,
+  createReviseChapterTool,
   createReadTool,
   createEditTool,
   createGrepTool,
   createLsTool,
+  createWriteTruthFileTool,
 } from "./agent-tools.js";
 
 // ---------------------------------------------------------------------------
@@ -232,6 +236,10 @@ export async function runAgentSession(
         tools: [
           createSubAgentTool(pipeline, bookId),
           createReadTool(projectRoot),
+          createReviseChapterTool(pipeline, bookId),
+          createWriteTruthFileTool(pipeline, projectRoot, bookId),
+          createRenameEntityTool(pipeline, projectRoot, bookId),
+          createPatchChapterTextTool(pipeline, projectRoot, bookId),
           createEditTool(projectRoot),
           createGrepTool(projectRoot),
           createLsTool(projectRoot),
