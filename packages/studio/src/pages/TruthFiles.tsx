@@ -34,7 +34,7 @@ export interface FilePresentation {
 
 export function deriveFilePresentation(
   fileName: string | null,
-  fileData: { content: string | null; legacy?: boolean } | undefined,
+  fileData: { content: string | null; legacy?: boolean } | null | undefined,
 ): FilePresentation {
   const legacy = fileData?.legacy === true;
   const authoritativePath = fileName ? SHIM_AUTHORITATIVE_PATH[fileName] ?? null : null;

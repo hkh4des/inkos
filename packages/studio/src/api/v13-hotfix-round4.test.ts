@@ -127,7 +127,7 @@ describe("Issue 1 — Studio: old book (no outline/story_frame.md)", () => {
     const { createStudioServer } = await import("./server.js");
     const app = createStudioServer(cloneProjectConfig() as never, root);
 
-    const res = await app.request("http://localhost/api/books/old-book/truth/story_bible.md");
+    const res = await app.request("http://localhost/api/v1/books/old-book/truth/story_bible.md");
     expect(res.status).toBe(200);
     const body = await res.json() as { file: string; content: string; legacy?: boolean };
     expect(body.content).toContain("Authoritative content");
@@ -138,7 +138,7 @@ describe("Issue 1 — Studio: old book (no outline/story_frame.md)", () => {
     const { createStudioServer } = await import("./server.js");
     const app = createStudioServer(cloneProjectConfig() as never, root);
 
-    const res = await app.request("http://localhost/api/books/old-book/truth/story_bible.md", {
+    const res = await app.request("http://localhost/api/v1/books/old-book/truth/story_bible.md", {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ content: "# Updated Bible" }),
@@ -152,7 +152,7 @@ describe("Issue 1 — Studio: old book (no outline/story_frame.md)", () => {
     const { createStudioServer } = await import("./server.js");
     const app = createStudioServer(cloneProjectConfig() as never, root);
 
-    const res = await app.request("http://localhost/api/books/old-book/truth");
+    const res = await app.request("http://localhost/api/v1/books/old-book/truth");
     expect(res.status).toBe(200);
     const body = await res.json() as { files: ReadonlyArray<{ name: string; legacy?: true }> };
     const bibleEntry = body.files.find((f) => f.name === "story_bible.md");
@@ -189,7 +189,7 @@ describe("Issue 1 — Studio: new book (has outline/story_frame.md)", () => {
     const { createStudioServer } = await import("./server.js");
     const app = createStudioServer(cloneProjectConfig() as never, root);
 
-    const res = await app.request("http://localhost/api/books/new-book/truth/story_bible.md");
+    const res = await app.request("http://localhost/api/v1/books/new-book/truth/story_bible.md");
     expect(res.status).toBe(200);
     const body = await res.json() as { legacy?: boolean };
     expect(body.legacy).toBe(true);
@@ -199,7 +199,7 @@ describe("Issue 1 — Studio: new book (has outline/story_frame.md)", () => {
     const { createStudioServer } = await import("./server.js");
     const app = createStudioServer(cloneProjectConfig() as never, root);
 
-    const res = await app.request("http://localhost/api/books/new-book/truth/story_bible.md", {
+    const res = await app.request("http://localhost/api/v1/books/new-book/truth/story_bible.md", {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ content: "# Attempt" }),
@@ -213,7 +213,7 @@ describe("Issue 1 — Studio: new book (has outline/story_frame.md)", () => {
     const { createStudioServer } = await import("./server.js");
     const app = createStudioServer(cloneProjectConfig() as never, root);
 
-    const res = await app.request("http://localhost/api/books/new-book/truth");
+    const res = await app.request("http://localhost/api/v1/books/new-book/truth");
     expect(res.status).toBe(200);
     const body = await res.json() as { files: ReadonlyArray<{ name: string; legacy?: true }> };
     const bibleEntry = body.files.find((f) => f.name === "story_bible.md");

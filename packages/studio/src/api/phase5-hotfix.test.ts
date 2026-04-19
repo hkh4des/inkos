@@ -138,7 +138,7 @@ describe("Phase 5 hotfix 1 — Studio truth file endpoints", () => {
     const app = createStudioServer(cloneProjectConfig() as never, root);
 
     const response = await app.request(
-      "http://localhost/api/books/hotfix-book/truth/outline/story_frame.md",
+      "http://localhost/api/v1/books/hotfix-book/truth/outline/story_frame.md",
     );
     expect(response.status).toBe(200);
     const body = await response.json() as { file: string; content: string; legacy?: boolean };
@@ -157,7 +157,7 @@ describe("Phase 5 hotfix 1 — Studio truth file endpoints", () => {
     const app = createStudioServer(cloneProjectConfig() as never, root);
 
     const response = await app.request(
-      "http://localhost/api/books/hotfix-book/truth/roles/主要角色/主角甲.md",
+      "http://localhost/api/v1/books/hotfix-book/truth/roles/主要角色/主角甲.md",
     );
     expect(response.status).toBe(200);
     const body = await response.json() as { file: string; content: string };
@@ -173,7 +173,7 @@ describe("Phase 5 hotfix 1 — Studio truth file endpoints", () => {
     const app = createStudioServer(cloneProjectConfig() as never, root);
 
     for (const file of ["story_bible.md", "book_rules.md"]) {
-      const res = await app.request(`http://localhost/api/books/hotfix-book/truth/${file}`);
+      const res = await app.request(`http://localhost/api/v1/books/hotfix-book/truth/${file}`);
       expect(res.status).toBe(200);
       const body = await res.json() as { legacy?: boolean };
       expect(body.legacy).toBe(true);
@@ -187,7 +187,7 @@ describe("Phase 5 hotfix 1 — Studio truth file endpoints", () => {
     // Encoded form — the :file{.+} pattern accepts this; resolveTruthFilePath
     // must reject the resolved path regardless.
     const response = await app.request(
-      "http://localhost/api/books/hotfix-book/truth/outline/..%2F..%2Fetc%2Fpasswd",
+      "http://localhost/api/v1/books/hotfix-book/truth/outline/..%2F..%2Fetc%2Fpasswd",
     );
     expect(response.status).toBe(400);
     await expect(response.json()).resolves.toEqual({ error: "Invalid truth file" });
@@ -199,19 +199,19 @@ describe("Phase 5 hotfix 1 — Studio truth file endpoints", () => {
 
     // Unknown flat file
     const response1 = await app.request(
-      "http://localhost/api/books/hotfix-book/truth/random.md",
+      "http://localhost/api/v1/books/hotfix-book/truth/random.md",
     );
     expect(response1.status).toBe(400);
 
     // Unknown subdir
     const response2 = await app.request(
-      "http://localhost/api/books/hotfix-book/truth/outline/unknown.md",
+      "http://localhost/api/v1/books/hotfix-book/truth/outline/unknown.md",
     );
     expect(response2.status).toBe(400);
 
     // roles/ with unknown tier
     const response3 = await app.request(
-      "http://localhost/api/books/hotfix-book/truth/roles/其他/x.md",
+      "http://localhost/api/v1/books/hotfix-book/truth/roles/其他/x.md",
     );
     expect(response3.status).toBe(400);
   });
@@ -223,7 +223,7 @@ describe("Phase 5 hotfix 1 — Studio truth file endpoints", () => {
     const app = createStudioServer(cloneProjectConfig() as never, root);
 
     const response = await app.request(
-      "http://localhost/api/books/hotfix-book/truth/book_rules.md",
+      "http://localhost/api/v1/books/hotfix-book/truth/book_rules.md",
       {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
@@ -240,7 +240,7 @@ describe("Phase 5 hotfix 1 — Studio truth file endpoints", () => {
     const app = createStudioServer(cloneProjectConfig() as never, root);
 
     const response = await app.request(
-      "http://localhost/api/books/hotfix-book/truth/outline/story_frame.md",
+      "http://localhost/api/v1/books/hotfix-book/truth/outline/story_frame.md",
       {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
@@ -266,7 +266,7 @@ describe("Phase 5 hotfix 1 — Studio truth file endpoints", () => {
     const app = createStudioServer(cloneProjectConfig() as never, root);
 
     const response = await app.request(
-      "http://localhost/api/books/hotfix-book/truth/roles/major/Mara.md",
+      "http://localhost/api/v1/books/hotfix-book/truth/roles/major/Mara.md",
     );
     expect(response.status).toBe(200);
     const body = await response.json() as { content: string };
@@ -279,7 +279,7 @@ describe("Phase 5 hotfix 1 — Studio truth file endpoints", () => {
     const app = createStudioServer(cloneProjectConfig() as never, root);
 
     const response = await app.request(
-      "http://localhost/api/books/hotfix-book/truth/roles/minor/Kit.md",
+      "http://localhost/api/v1/books/hotfix-book/truth/roles/minor/Kit.md",
       {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
@@ -301,7 +301,7 @@ describe("Phase 5 hotfix 1 — Studio truth file endpoints", () => {
     const { createStudioServer } = await import("./server.js");
     const app = createStudioServer(cloneProjectConfig() as never, root);
 
-    const response = await app.request("http://localhost/api/books/hotfix-book/truth");
+    const response = await app.request("http://localhost/api/v1/books/hotfix-book/truth");
     const body = await response.json() as { files: ReadonlyArray<{ name: string }> };
     const names = body.files.map((f) => f.name);
     expect(names).toContain("roles/major/Mara.md");
@@ -318,7 +318,7 @@ describe("Phase 5 hotfix 1 — Studio truth file endpoints", () => {
     const { createStudioServer } = await import("./server.js");
     const app = createStudioServer(cloneProjectConfig() as never, root);
 
-    const response = await app.request("http://localhost/api/books/hotfix-book/truth");
+    const response = await app.request("http://localhost/api/v1/books/hotfix-book/truth");
     expect(response.status).toBe(200);
     const body = await response.json() as { files: ReadonlyArray<{ name: string; legacy?: true }> };
     const names = body.files.map((f) => f.name).sort();

@@ -176,6 +176,7 @@ vi.mock("@actalk/inkos-core", () => {
     getServiceApiKey: getServiceApiKeyMock,
     listModelsForService: listModelsForServiceMock,
     GLOBAL_ENV_PATH: join(tmpdir(), "inkos-global.env"),
+    isNewLayoutBook: vi.fn(async () => false),
   };
 });
 

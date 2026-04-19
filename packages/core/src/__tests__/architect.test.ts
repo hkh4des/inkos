@@ -582,7 +582,7 @@ describe("ArchitectAgent", () => {
 
     expect(chatSpy).toHaveBeenCalledWith(
       expect.any(Array),
-      expect.objectContaining({ temperature: 0.8, maxTokens: 16384 }),
+      expect.objectContaining({ temperature: 0.8, maxTokens: 20480 }),
     );
   });
 
@@ -645,7 +645,7 @@ describe("ArchitectAgent", () => {
 
     expect(chatSpy).toHaveBeenCalledWith(
       expect.any(Array),
-      expect.objectContaining({ temperature: 0.5, maxTokens: 16384 }),
+      expect.objectContaining({ temperature: 0.5, maxTokens: 20480 }),
     );
   });
 
@@ -708,7 +708,7 @@ describe("ArchitectAgent", () => {
 
     expect(chatSpy).toHaveBeenCalledWith(
       expect.any(Array),
-      expect.objectContaining({ temperature: 0.7, maxTokens: 16384 }),
+      expect.objectContaining({ temperature: 0.7, maxTokens: 20480 }),
     );
   });
 });

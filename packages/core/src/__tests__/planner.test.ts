@@ -63,7 +63,6 @@ const STUB_CLIENT: LLMClient = {
   provider: "openai",
   apiFormat: "chat",
   stream: false,
-  _openai: {} as never,
   defaults: { temperature: 0.7, maxTokens: 2048, thinkingBudget: 0, maxTokensCap: null, extra: {} },
 };
 
