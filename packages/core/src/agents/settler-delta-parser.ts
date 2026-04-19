@@ -8,6 +8,12 @@ export interface SettlerDeltaOutput {
   readonly runtimeStateDelta: RuntimeStateDelta;
 }
 
+function sanitizeJSON(str: string): string {
+  return str
+    .replace(/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/g, "")
+    .replace(/,\s*([}\]])/g, "$1");
+}
+
 export function parseSettlerDeltaOutput(content: string): SettlerDeltaOutput {
   const extract = (tag: string): string => {
     const regex = new RegExp(
@@ -25,7 +31,7 @@ export function parseSettlerDeltaOutput(content: string): SettlerDeltaOutput {
   const jsonPayload = stripCodeFence(rawDelta);
   let parsed: unknown;
   try {
-    parsed = JSON.parse(jsonPayload);
+    parsed = JSON.parse(sanitizeJSON(jsonPayload));
   } catch (error) {
     throw new Error(`runtime state delta is not valid JSON: ${String(error)}`);
   }

@@ -306,6 +306,8 @@ describe("PipelineRunner", () => {
         projectRoot: process.cwd(),
         defaultLLMConfig: {
           provider: "custom",
+          service: "custom",
+          configSource: "env",
           baseUrl: "https://base.example/v1",
           apiKey: "base-key",
           model: "base-model",
@@ -402,6 +404,67 @@ describe("PipelineRunner", () => {
       expect(authorIntent).toContain("mentor conflict");
       expect(currentFocus).toContain("当前聚焦");
       expect(runtimeDir.isDirectory()).toBe(true);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("applies creation-draft overrides while initializing a book", async () => {
+    const root = await mkdtemp(join(tmpdir(), "inkos-init-book-overrides-"));
+    const bookId = "override-book";
+    const book: BookConfig = {
+      id: bookId,
+      title: "Override Book",
+      platform: "tomato",
+      genre: "xuanhuan",
+      status: "outlining",
+      targetChapters: 20,
+      chapterWordCount: 2800,
+      createdAt: "2026-04-13T00:00:00.000Z",
+      updatedAt: "2026-04-13T00:00:00.000Z",
+    };
+
+    const runner = new PipelineRunner({
+      client: {
+        provider: "openai",
+        apiFormat: "chat",
+        stream: false,
+        defaults: {
+          temperature: 0.7,
+          maxTokens: 4096,
+          thinkingBudget: 0, maxTokensCap: null,
+        },
+      } as ConstructorParameters<typeof PipelineRunner>[0]["client"],
+      model: "test-model",
+      projectRoot: root,
+    });
+
+    const generateFoundationSpy = vi.spyOn(ArchitectAgent.prototype, "generateFoundation").mockResolvedValue({
+      storyBible: "# Story Bible\n",
+      volumeOutline: "# Volume Outline\n",
+      bookRules: "---\nversion: \"1.0\"\n---\n\n# Book Rules\n",
+      currentState: "# Current State\n",
+      pendingHooks: "# Pending Hooks\n",
+    });
+
+    try {
+      await runner.initBook(book, {
+        externalContext: "世界观重点：近未来港口城，账本与旧案牵出多方势力。",
+        authorIntent: "# 作者意图\n\n写成冷硬、克制、利益驱动的商战悬疑。\n",
+        currentFocus: "# 当前聚焦\n\n先把旧账线和港口势力网立住。\n",
+      });
+
+      expect(generateFoundationSpy).toHaveBeenCalledWith(
+        book,
+        expect.stringContaining("近未来港口城"),
+        undefined,
+      );
+
+      const storyDir = join(root, "books", bookId, "story");
+      await expect(readFile(join(storyDir, "author_intent.md"), "utf-8"))
+        .resolves.toContain("冷硬、克制、利益驱动");
+      await expect(readFile(join(storyDir, "current_focus.md"), "utf-8"))
+        .resolves.toContain("旧账线和港口势力网");
     } finally {
       await rm(root, { recursive: true, force: true });
     }
@@ -970,6 +1033,7 @@ describe("PipelineRunner", () => {
       const result = await runner.writeDraft(bookId);
 
       expect(result.chapterNumber).toBe(1);
+      console.log("DEBUG warnings:", JSON.stringify(warnings, null, 2));
       expect(warnings).toContain(
         "当前 Node 运行时不支持 SQLite 记忆索引，继续使用 Markdown 回退方案。",
       );
@@ -2419,11 +2483,10 @@ describe("PipelineRunner", () => {
     await rm(root, { recursive: true, force: true });
   });
 
-  it("does not persist chapter files or index entries when state validation errors before save", async () => {
+  it("degrades to state-degraded when state validation errors instead of aborting", async () => {
     const { root, runner, state, bookId } = await createRunnerFixture({
       inputGovernanceMode: "legacy",
     });
-    const chaptersDir = join(state.bookDir(bookId), "chapters");
 
     vi.spyOn(WriterAgent.prototype, "writeChapter").mockResolvedValue(
       createWriterOutput({
@@ -2442,9 +2505,13 @@ describe("PipelineRunner", () => {
       new Error("LLM returned empty response"),
     );
 
-    await expect(runner.writeNextChapter(bookId)).rejects.toThrow("LLM returned empty response");
-    await expect(readdir(chaptersDir)).resolves.toEqual([]);
-    await expect(state.loadChapterIndex(bookId)).resolves.toEqual([]);
+    const result = await runner.writeNextChapter(bookId);
+    expect(result.status).toBe("state-degraded");
+
+    // Chapter should be saved (content is fine, only truth files are degraded)
+    const index = await state.loadChapterIndex(bookId);
+    expect(index).toHaveLength(1);
+    expect(index[0]!.status).toBe("state-degraded");
 
     await rm(root, { recursive: true, force: true });
   });
@@ -2658,7 +2725,7 @@ describe("PipelineRunner", () => {
       }]),
     ]);
 
-    vi.spyOn(
+    const settleSpy = vi.spyOn(
       WriterAgent.prototype as unknown as {
         settleChapterState: (input: Record<string, unknown>) => Promise<WriteChapterOutput>;
       },
@@ -2691,11 +2758,99 @@ describe("PipelineRunner", () => {
 
     expect(result.status).toBe("ready-for-review");
     expect(result.chapterNumber).toBe(1);
+    expect(settleSpy).toHaveBeenCalledWith(expect.objectContaining({
+      allowReapply: true,
+    }));
     await expect(readFile(join(storyDir, "current_state.md"), "utf-8")).resolves.toBe("fixed state");
     await expect(readFile(join(storyDir, "pending_hooks.md"), "utf-8")).resolves.toBe("fixed hooks");
     expect(savedIndex[0]?.status).toBe("ready-for-review");
     expect(savedIndex[0]?.auditIssues).toEqual([]);
     expect(savedIndex[0]?.reviewNote).toBeUndefined();
+
+    await rm(root, { recursive: true, force: true });
+  });
+
+  it("syncs the latest edited chapter body back into truth files without requiring state-degraded status", async () => {
+    const { root, runner, state, bookId } = await createRunnerFixture({
+      inputGovernanceMode: "v2",
+      externalContext: "把注意力收回师债主线。",
+    });
+    const now = "2026-03-19T00:00:00.000Z";
+    const bookDir = state.bookDir(bookId);
+    const storyDir = join(bookDir, "story");
+
+    await Promise.all([
+      writeFile(join(storyDir, "current_focus.md"), "# 当前聚焦\n\n## 当前重点\n\n商会路线优先。\n", "utf-8"),
+      writeFile(join(storyDir, "volume_outline.md"), "# 卷纲\n\n## 第1章\n先处理商会路线噪音。\n", "utf-8"),
+      writeFile(join(storyDir, "story_bible.md"), "# 世界观设定\n\n- 誓令碎片不可伪造。\n", "utf-8"),
+      writeFile(join(storyDir, "current_state.md"), "stable state", "utf-8"),
+      writeFile(join(storyDir, "pending_hooks.md"), "stable hooks", "utf-8"),
+      writeFile(join(storyDir, "particle_ledger.md"), "stable ledger", "utf-8"),
+      writeFile(join(storyDir, "chapter_summaries.md"), [
+        "# 章节摘要",
+        "",
+        "| 章节 | 标题 | 出场人物 | 关键事件 | 状态变化 | 伏笔动态 | 情绪基调 | 章节类型 |",
+        "| --- | --- | --- | --- | --- | --- | --- | --- |",
+        "| 1 | 夜灯 | 林越 | 林越继续追查师债 | 追查意图更强 | 师债推进 | 压抑 | 主线推进 |",
+        "",
+      ].join("\n"), "utf-8"),
+      writeFile(
+        join(bookDir, "chapters", "0001_夜灯.md"),
+        "# 第1章 夜灯\n\n林越推门进去，先停在门槛外听了一息，再去看柜台后那盏没关的灯。",
+        "utf-8",
+      ),
+      state.saveChapterIndex(bookId, [{
+        number: 1,
+        title: "夜灯",
+        status: "approved" as ChapterMeta["status"],
+        wordCount: 55,
+        createdAt: now,
+        updatedAt: now,
+        auditIssues: [],
+        lengthWarnings: [],
+      }]),
+    ]);
+
+    const settleSpy = vi.spyOn(
+      WriterAgent.prototype as unknown as {
+        settleChapterState: (input: Record<string, unknown>) => Promise<WriteChapterOutput>;
+      },
+      "settleChapterState",
+    ).mockResolvedValue(
+      createWriterOutput({
+        chapterNumber: 1,
+        title: "夜灯",
+        content: "林越推门进去，先停在门槛外听了一息，再去看柜台后那盏没关的灯。",
+        wordCount: "林越推门进去，先停在门槛外听了一息，再去看柜台后那盏没关的灯。".length,
+        updatedState: "synced state",
+        updatedHooks: "synced hooks",
+        updatedLedger: "synced ledger",
+      }),
+    );
+    vi.spyOn(StateValidatorAgent.prototype, "validate").mockResolvedValue({
+      passed: true,
+      warnings: [],
+    });
+
+    const result = await (
+      runner as unknown as {
+        resyncChapterArtifacts: (bookId: string, chapterNumber?: number) => Promise<{
+          status: string;
+          chapterNumber: number;
+        }>;
+      }
+    ).resyncChapterArtifacts(bookId, 1);
+    const savedIndex = await state.loadChapterIndex(bookId);
+
+    expect(result.status).toBe("ready-for-review");
+    expect(result.chapterNumber).toBe(1);
+    expect(settleSpy).toHaveBeenCalledWith(expect.objectContaining({
+      allowReapply: true,
+      chapterIntent: expect.stringContaining("把注意力收回师债主线"),
+    }));
+    await expect(readFile(join(storyDir, "current_state.md"), "utf-8")).resolves.toBe("synced state");
+    await expect(readFile(join(storyDir, "pending_hooks.md"), "utf-8")).resolves.toBe("synced hooks");
+    expect(savedIndex[0]?.status).toBe("ready-for-review");
 
     await rm(root, { recursive: true, force: true });
   });
@@ -4191,6 +4346,85 @@ describe("PipelineRunner", () => {
         lengthSpec: expect.objectContaining({
           target: 3000,
         }),
+      });
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("passes one-off external brief into manual revise in v2 mode", async () => {
+    const { root, runner, state, bookId } = await createRunnerFixture({
+      inputGovernanceMode: "v2",
+      externalContext: "把注意力收回师债主线，并强调柜台后的异常灯光。",
+    });
+    const storyDir = join(state.bookDir(bookId), "story");
+    const chaptersDir = join(state.bookDir(bookId), "chapters");
+    const originalBody = "林越推门进去，先看见柜台后那盏没关的灯。";
+
+    await Promise.all([
+      writeFile(join(storyDir, "current_focus.md"), "# 当前聚焦\n\n## 当前重点\n\n商会路线优先。\n", "utf-8"),
+      writeFile(join(storyDir, "volume_outline.md"), "# 卷纲\n\n## 第1章\n先处理商会路线噪音。\n", "utf-8"),
+      writeFile(join(storyDir, "current_state.md"), createStateCard({
+        chapter: 1,
+        location: "旧港便利店",
+        protagonistState: "林越仍在追查师债。",
+        goal: "把注意力拉回师债线索。",
+        conflict: "商会路线仍在分散注意力。",
+      }), "utf-8"),
+      writeFile(join(storyDir, "story_bible.md"), "# 世界观设定\n\n- 誓令碎片不可伪造。\n", "utf-8"),
+      writeFile(join(storyDir, "pending_hooks.md"), "# 伏笔池\n\n- 师债线索仍未回收。\n", "utf-8"),
+      writeFile(join(storyDir, "chapter_summaries.md"), [
+        "# 章节摘要",
+        "",
+        "| 章节 | 标题 | 出场人物 | 关键事件 | 状态变化 | 伏笔动态 | 情绪基调 | 章节类型 |",
+        "| --- | --- | --- | --- | --- | --- | --- | --- |",
+        "| 1 | 夜灯 | 林越 | 林越继续追查师债 | 追查意图更强 | 师债推进 | 压抑 | 主线推进 |",
+        "",
+      ].join("\n"), "utf-8"),
+      writeFile(join(chaptersDir, "0001_夜灯.md"), `# 第1章 夜灯\n\n${originalBody}`, "utf-8"),
+    ]);
+    await state.saveChapterIndex(bookId, [{
+      number: 1,
+      title: "夜灯",
+      status: "audit-failed",
+      wordCount: originalBody.length,
+      createdAt: "2026-03-19T00:00:00.000Z",
+      updatedAt: "2026-03-19T00:00:00.000Z",
+      auditIssues: [],
+      lengthWarnings: [],
+    }]);
+
+    vi.spyOn(ContinuityAuditor.prototype, "auditChapter")
+      .mockResolvedValueOnce(
+        createAuditResult({
+          passed: false,
+          issues: [CRITICAL_ISSUE],
+          summary: "needs revision",
+        }),
+      )
+      .mockResolvedValueOnce(
+        createAuditResult({
+          passed: true,
+          issues: [],
+          summary: "clean",
+        }),
+      );
+    const reviseChapter = vi.spyOn(ReviserAgent.prototype, "reviseChapter").mockResolvedValue(
+      createReviseOutput({
+        revisedContent: "林越推门进去，先停在门槛外听了一息，再去看柜台后那盏没关的灯。",
+        wordCount: "林越推门进去，先停在门槛外听了一息，再去看柜台后那盏没关的灯。".length,
+        fixedIssues: ["- 收紧了主线焦点。"],
+      }),
+    );
+
+    try {
+      await runner.reviseDraft(bookId, 1);
+
+      expect(reviseChapter.mock.calls[0]?.[6]).toMatchObject({
+        chapterIntent: expect.stringContaining("把注意力收回师债主线"),
+      });
+      expect(reviseChapter.mock.calls[0]?.[6]).not.toMatchObject({
+        chapterIntent: expect.stringContaining("商会路线优先"),
       });
     } finally {
       await rm(root, { recursive: true, force: true });

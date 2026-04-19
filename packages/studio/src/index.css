@@ -6,6 +6,11 @@
 
 @import "tailwindcss";
 
+@import "tw-animate-css";
+@import "shadcn/tailwind.css";
+
+@custom-variant dark (&:is(.dark *));
+
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
@@ -223,13 +228,12 @@ h3 { font-size: 1.25rem; }
   background-color: var(--card);
   border: 1px solid var(--border);
   box-shadow: var(--shadow-md);
-  transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
-  transform-style: preserve-3d;
+  transition: box-shadow 0.3s cubic-bezier(0.16, 1, 0.3, 1),
+              border-color 0.3s cubic-bezier(0.16, 1, 0.3, 1);
 }
 
 .paper-sheet:hover {
   box-shadow: var(--shadow-3d-hover);
-  transform: translateY(-4px) scale(1.005);
   border-color: var(--primary);
 }
 
@@ -306,4 +310,14 @@ h3 { font-size: 1.25rem; }
 .chat-panel-enter {
   transition: width 300ms cubic-bezier(0.16, 1, 0.3, 1),
               opacity 200ms ease-out;
+}
+
+/* ── Streamdown overrides ── */
+[data-streamdown="table-wrapper"] {
+  border: none;
+  background: transparent;
+  padding: 0;
+}
+[data-streamdown="table-wrapper"] > .flex.items-center.justify-end {
+  display: none;
 }

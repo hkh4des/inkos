@@ -3,13 +3,14 @@
   <img src="assets/inkos-text.svg" width="240" height="65" alt="InkOS">
 </p>
 
-<h1 align="center">Autonomous Novel Writing CLI AI Agent</h1>
+<h1 align="center">Autonomous Novel Writing AI Agent</h1>
 
 <p align="center">
   <a href="https://www.npmjs.com/package/@actalk/inkos"><img src="https://img.shields.io/npm/v/@actalk/inkos.svg?color=cb3837&logo=npm" alt="npm version"></a>
-  <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-blue.svg" alt="License: MIT"></a>
-  <a href="https://nodejs.org/"><img src="https://img.shields.io/badge/node-%3E%3D20.0.0-brightgreen.svg" alt="Node.js"></a>
-  <a href="https://www.typescriptlang.org/"><img src="https://img.shields.io/badge/TypeScript-5.x-3178C6.svg?logo=typescript&logoColor=white" alt="TypeScript"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/License-AGPL%20v3-blue.svg" alt="License: AGPL-3.0"></a>
+  <a href="https://github.com/Narcooo/inkos/stargazers"><img src="https://img.shields.io/github/stars/Narcooo/inkos?style=flat&logo=github&color=yellow" alt="GitHub stars"></a>
+  <a href="https://www.npmjs.com/package/@actalk/inkos"><img src="https://img.shields.io/npm/dm/@actalk/inkos?color=cb3837&logo=npm&label=downloads" alt="npm downloads"></a>
+  <a href="https://clawhub.ai/narcooo/inkos"><img src="https://img.shields.io/badge/🦞%20ClawHub-Skill-FF6B35?labelColor=1a1a1a" alt="ClawHub Skill"></a>
 </p>
 
 <p align="center">
@@ -18,9 +19,11 @@
 
 ---
 
-Open-source CLI AI Agent that autonomously writes, audits, and revises novels — with human review gates that keep you in control. Supports LitRPG, Progression Fantasy, Isekai, Romantasy, Sci-Fi, and more. Continuation, spinoff, fanfic, and style imitation workflows built in.
+Open-source AI Agent that autonomously writes, audits, and revises novels — with human review gates that keep you in control. Supports LitRPG, Progression Fantasy, Isekai, Romantasy, Sci-Fi, and more. Continuation, spinoff, fanfic, and style imitation workflows built in.
 
-**InkOS Studio is here!** — run `inkos studio` to launch a local web workbench. Book management, chapter review & editing, real-time writing progress, market radar, analytics, AI detection, style analysis, genre management, daemon control, truth file editing — everything the CLI does, now visual.
+**InkOS Studio 2.0 is here!** — run `inkos` to launch the local web workbench. Book management, chapter review & editing, real-time writing progress, market radar, analytics, AI detection, style analysis, genre management, daemon control, truth file editing — everything the CLI does, now visual.
+
+**InkOS TUI is here!** — run `inkos tui` to launch a full-screen interactive dashboard. Conversational creation, natural-language book operations, slash command autocomplete, themed animations — TUI, Studio, and OpenClaw share the same interaction kernel.
 
 **Native English novel writing now supported！** — 10 built-in English genre profiles with dedicated pacing rules, fatigue word lists, and audit dimensions. Set `--lang en` and go.
 
@@ -42,7 +45,21 @@ clawhub install inkos          # Install from ClawHub
 
 If you installed via npm or cloned the repo, `skills/SKILL.md` is already included — 🦞 can read it directly without a separate ClawHub install.
 
-Once installed, Claw can invoke InkOS atomic commands and control-surface operations (`plan chapter`/`compose chapter`/`draft`/`audit`/`revise`/`write next`) via `exec`, with `--json` output for structured decision-making. The recommended flow is: update `author_intent.md` or `current_focus.md`, run `plan` / `compose`, then decide whether to call `draft` or the full `write next` pipeline. You can also browse it on [ClawHub](https://clawhub.ai) by searching `inkos`.
+Once installed, Claw should prefer the shared interaction entry:
+
+```bash
+inkos interact --json --message "continue the current book, but keep the pacing tighter"
+```
+
+This routes through the same conversation executor used by the project TUI, so OpenClaw, TUI, and Studio stay on the same control brain. The JSON payload includes:
+- parsed request
+- assistant response text
+- updated interaction session
+- execution state
+- pending decision
+- recent events
+
+Atomic commands (`plan chapter` / `compose chapter` / `draft` / `audit` / `revise` / `write next`) are still available, but they are now lower-level tools rather than the preferred OpenClaw entry. You can also browse it on [ClawHub](https://clawhub.ai) by searching `inkos`.
 
 ### Configure
 
@@ -102,22 +119,18 @@ inkos config show-models        # View current routing
 
 Agents without explicit overrides fall back to the global model.
 
-### v0.6 Update
+### v1.2 Update
 
-**Structured State + Hook Governance + Length Governance**
+**Unified Interaction Kernel + TUI Dashboard + Studio Assistant**
 
-Addresses three systemic long-form writing problems: **context bloat after 20+ chapters causing slowdowns and 400 errors** (Settler full injection → JSON delta + selective retrieval), **hooks only accumulate, never resolve, ~0% payoff rate** (Planner scheduling + Settler blind spot fix + audit debt tracking), **word count deviation 50%+ and normalizer destroying chapters** (LengthSpec + safety net).
-
-- Pipeline upgraded to 10 agents: adds Planner, Composer, Observer, Reflector, Normalizer
-- Truth files moved to `story/state/*.json` (Zod validated); Settler outputs JSON delta instead of full markdown; legacy books auto-migrate
-- SQLite temporal memory database on Node 22+ for relevance-based retrieval
-- Planner generates `hookAgenda` to schedule hook advancement and payoff; Settler working set expanded to cover dormant debt
-- New `mention` semantics prevents fake hook advancement; `analyzeHookHealth` audits hook debt; `evaluateHookAdmission` blocks duplicate hooks
-- Length governance: `LengthSpec` + Normalizer single-pass correction with safety net against destructive normalization
-- User `INKOS_LLM_MAX_TOKENS` acts as global cap; reserved keys in `llm.extra` auto-stripped
-- Cross-chapter repetition detection, dialogue-driven guidance, English variance brief, multi-character scene resistance
-- Chapter summary dedup, ESM node:sqlite fix, consolidate full-width parenthesis support
-- Bilingual CLI output and logging
+- **Shared Interaction Runtime**: TUI, Studio, `inkos interact`, and OpenClaw Skill share a single NL understanding + execution kernel, supporting 15+ intents (write, revise, rewrite, rename, export, switch book, etc.)
+- **Ink TUI Dashboard**: `inkos` launches a full-screen interactive dashboard (Ink + React) with conversational creation, slash command autocomplete, themed animations, and bilingual i18n
+- **Studio Assistant Panel**: right-side AI assistant panel connects to the shared interaction kernel — natural language book operations (rename, write, audit, export) with real-time execution status
+- **Conversational Book Creation**: brainstorm book settings through natural language dialogue, one-click create when draft is ready
+- **Book-wide Entity Rename**: `rename Lin Jin to Zhang San` or `/rename Lin Jin => Zhang San` — scans all chapters + truth files in one pass
+- **`inkos interact`**: shared interaction JSON endpoint for OpenClaw / external agent integration
+- **Thinking Model Temperature Clamp**: kimi-k2.5 and similar thinking models auto-clamped to temperature=1, compatible with per-call temperature overrides
+- **Studio Dead Code Cleanup**: removed unused shadcn components and dependencies, -2800 lines
 
 ### Write Your First Book
 
@@ -391,6 +404,8 @@ inkos agent "Create a progression fantasy about a mage who can only use one spel
 
 Contributions welcome. Open an issue or PR.
 
+Development is moving quickly. More features and writing-quality improvements will keep landing. Feedback, feature requests, and project follow-up are all welcome. The goal is to build the strongest AI novel-writing Agent.
+
 ```bash
 pnpm install
 pnpm dev          # Watch mode for all packages
@@ -420,4 +435,4 @@ pnpm typecheck    # Type-check without emitting
 
 ## License
 
-[MIT](LICENSE)
+[AGPL-3.0](LICENSE)

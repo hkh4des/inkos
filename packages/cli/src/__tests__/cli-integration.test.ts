@@ -191,6 +191,55 @@ describe("CLI integration", () => {
     });
   });
 
+  describe("inkos interact", () => {
+    it("returns structured JSON for shared interaction mode switches", async () => {
+      const initialized = await stat(join(projectDir, "inkos.json")).then(() => true).catch(() => false);
+      if (!initialized) run(["init"]);
+      await writeFile(
+        join(projectDir, ".env"),
+        Object.entries(failingLlmEnv).map(([key, value]) => `${key}=${value}`).join("\n"),
+        "utf-8",
+      );
+      const output = run(["interact", "--json", "--message", "切换到全自动"]);
+      const data = JSON.parse(output);
+
+      expect(data.request.intent).toBe("switch_mode");
+      expect(data.request.mode).toBe("auto");
+      expect(data.session.automationMode).toBe("auto");
+    });
+
+    it("binds the requested book when interact is called with --book", async () => {
+      const initialized = await stat(join(projectDir, "inkos.json")).then(() => true).catch(() => false);
+      if (!initialized) run(["init"]);
+      await writeFile(
+        join(projectDir, ".env"),
+        Object.entries(failingLlmEnv).map(([key, value]) => `${key}=${value}`).join("\n"),
+        "utf-8",
+      );
+      const state = new StateManager(projectDir);
+      await state.saveBookConfig("harbor", {
+        id: "harbor",
+        title: "Harbor",
+        platform: "tomato",
+        genre: "other",
+        status: "active",
+        targetChapters: 20,
+        chapterWordCount: 3000,
+        createdAt: "2026-04-07T00:00:00.000Z",
+        updatedAt: "2026-04-07T00:00:00.000Z",
+      });
+
+      const output = run(["interact", "--json", "--book", "harbor", "--message", "/books"]);
+      const data = JSON.parse(output);
+
+      expect(data.session.activeBookId).toBe("harbor");
+
+      // Clean up harbor book and session so subsequent tests start with an empty project
+      await rm(join(projectDir, "books", "harbor"), { recursive: true, force: true });
+      await rm(join(projectDir, ".inkos-session.json"), { force: true }).catch(() => {});
+    });
+  });
+
   describe("inkos config set-model", () => {
     it("rejects raw API keys passed to --api-key-env", async () => {
       const { exitCode, stderr } = runStderr([
@@ -590,6 +639,46 @@ describe("CLI integration", () => {
       expect(`${stdout}\n${stderr}`).toContain("legacy format");
     });
 
+    it("fails rewrite before deleting chapters when the rollback snapshot is missing", async () => {
+      const bookId = "rewrite-missing-snapshot";
+      const bookDir = join(projectDir, "books", bookId);
+      const storyDir = join(bookDir, "story");
+      const chaptersDir = join(bookDir, "chapters");
+
+      await mkdir(chaptersDir, { recursive: true });
+      await mkdir(storyDir, { recursive: true });
+      await writeFile(
+        join(bookDir, "book.json"),
+        JSON.stringify({
+          id: bookId,
+          title: "Rewrite Missing Snapshot",
+          platform: "other",
+          genre: "other",
+          status: "active",
+          targetChapters: 10,
+          chapterWordCount: 2200,
+          createdAt: "2026-03-22T00:00:00.000Z",
+          updatedAt: "2026-03-22T00:00:00.000Z",
+        }, null, 2),
+        "utf-8",
+      );
+      await writeFile(join(storyDir, "current_state.md"), "State at ch1", "utf-8");
+      await writeFile(join(storyDir, "pending_hooks.md"), "Hooks at ch1", "utf-8");
+      await writeFile(join(chaptersDir, "0001_ch1.md"), "# Chapter 1\n\nContent 1", "utf-8");
+      await writeFile(join(chaptersDir, "0002_ch2.md"), "# Chapter 2\n\nContent 2", "utf-8");
+      await writeFile(join(chaptersDir, "index.json"), JSON.stringify([
+        { number: 1, title: "Ch1", status: "approved", wordCount: 100, createdAt: "", updatedAt: "", auditIssues: [], lengthWarnings: [] },
+        { number: 2, title: "Ch2", status: "approved", wordCount: 100, createdAt: "", updatedAt: "", auditIssues: [], lengthWarnings: [] },
+      ], null, 2), "utf-8");
+
+      const { exitCode, stdout, stderr } = runStderr(["write", "rewrite", bookId, "2", "--force"], {
+        env: failingLlmEnv,
+      });
+      expect(exitCode).not.toBe(0);
+      expect(`${stdout}\n${stderr}`).toContain("missing snapshot for chapter 1");
+      await expect(readFile(join(chaptersDir, "0002_ch2.md"), "utf-8")).resolves.toContain("Content 2");
+    });
+
     it("keeps next chapter at 2 after rewrite 2 trims later chapters, even if regeneration fails", async () => {
       const state = new StateManager(projectDir);
       const bookId = "rewrite-cli";
@@ -650,6 +739,7 @@ describe("CLI integration", () => {
       });
       expect(exitCode).not.toBe(0);
       expect(`${stdout}\n${stderr}`).toContain("Regenerating chapter 2");
+      expect(`${stdout}\n${stderr}`).not.toContain("resolved to 3");
 
       const next = await state.getNextChapterNumber(bookId);
       expect(next).toBe(2);

@@ -21,6 +21,7 @@ import {
   X,
   ShieldCheck,
   RotateCcw,
+  RefreshCw,
   Sparkles,
   Trash2,
   Save
@@ -56,6 +57,7 @@ interface Nav {
   toDashboard: () => void;
   toChapter: (bookId: string, num: number) => void;
   toAnalytics: (bookId: string) => void;
+  toTruth: (bookId: string) => void;
 }
 
 function translateChapterStatus(status: string, t: TFunction): string {
@@ -99,6 +101,7 @@ export function BookDetail({
   const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false);
   const [rewritingChapters, setRewritingChapters] = useState<ReadonlyArray<number>>([]);
   const [revisingChapters, setRevisingChapters] = useState<ReadonlyArray<number>>([]);
+  const [syncingChapters, setSyncingChapters] = useState<ReadonlyArray<number>>([]);
   const [savingSettings, setSavingSettings] = useState(false);
   const [settingsWordCount, setSettingsWordCount] = useState<number | null>(null);
   const [settingsTargetChapters, setSettingsTargetChapters] = useState<number | null>(null);
@@ -108,6 +111,7 @@ export function BookDetail({
   const activity = useMemo(() => deriveBookActivity(sse.messages, bookId), [bookId, sse.messages]);
   const writing = writeRequestPending || activity.writing;
   const drafting = draftRequestPending || activity.drafting;
+  const latestPersistedChapter = data ? data.nextChapter - 1 : 0;
 
   useEffect(() => {
     const recent = sse.messages.at(-1);
@@ -157,7 +161,7 @@ export function BookDetail({
     setConfirmDeleteOpen(false);
     setDeleting(true);
     try {
-      const res = await fetch(`/api/books/${bookId}`, { method: "DELETE" });
+      const res = await fetch(`/api/v1/books/${bookId}`, { method: "DELETE" });
       if (!res.ok) {
         const json = await res.json().catch(() => ({}));
         throw new Error((json as { error?: string }).error ?? `${res.status}`);
@@ -171,9 +175,20 @@ export function BookDetail({
   };
 
   const handleRewrite = async (chapterNum: number) => {
+    const brief = window.prompt(
+      data?.book.language === "en"
+        ? "Optional rewrite brief for this run only. Leave blank to use existing focus."
+        : "可选：输入这次重写要遵循的补充想法。留空则沿用现有 focus。",
+      "",
+    );
+    if (brief === null) return;
     setRewritingChapters((prev) => [...prev, chapterNum]);
     try {
-      await postApi(`/books/${bookId}/rewrite/${chapterNum}`);
+      await fetchJson(`/books/${bookId}/rewrite/${chapterNum}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ brief: brief.trim() || undefined }),
+      });
       refetch();
     } catch (e) {
       alert(e instanceof Error ? e.message : "Rewrite failed");
@@ -183,18 +198,48 @@ export function BookDetail({
   };
 
   const handleRevise = async (chapterNum: number, mode: ReviseMode) => {
+    const brief = window.prompt(
+      data?.book.language === "en"
+        ? "Optional revise brief for this run only. Leave blank to use existing focus."
+        : "可选：输入这次修订要遵循的补充想法。留空则沿用现有 focus。",
+      "",
+    );
+    if (brief === null) return;
     setRevisingChapters((prev) => [...prev, chapterNum]);
     try {
       await fetchJson(`/books/${bookId}/revise/${chapterNum}`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ mode }),
+        body: JSON.stringify({ mode, brief: brief.trim() || undefined }),
       });
       refetch();
     } catch (e) {
       alert(e instanceof Error ? e.message : "Revision failed");
     } finally {
       setRevisingChapters((prev) => prev.filter((n) => n !== chapterNum));
+    }
+  };
+
+  const handleSync = async (chapterNum: number) => {
+    const brief = window.prompt(
+      data?.book.language === "en"
+        ? "Optional sync brief for interpreting the edited chapter body. Leave blank to sync directly from the text."
+        : "可选：输入这次同步时要遵循的补充说明。留空则直接按正文同步。",
+      "",
+    );
+    if (brief === null) return;
+    setSyncingChapters((prev) => [...prev, chapterNum]);
+    try {
+      await fetchJson(`/books/${bookId}/resync/${chapterNum}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ brief: brief.trim() || undefined }),
+      });
+      refetch();
+    } catch (e) {
+      alert(e instanceof Error ? e.message : "Sync failed");
+    } finally {
+      setSyncingChapters((prev) => prev.filter((n) => n !== chapterNum));
     }
   };
 
@@ -222,8 +267,16 @@ export function BookDetail({
   const handleApproveAll = async () => {
     if (!data) return;
     const reviewable = data.chapters.filter((ch) => ch.status === "ready-for-review");
-    for (const ch of reviewable) {
-      await postApi(`/books/${bookId}/chapters/${ch.number}/approve`);
+    let failed = 0;
+    for (const chapter of reviewable) {
+      try {
+        await postApi(`/books/${bookId}/chapters/${chapter.number}/approve`);
+      } catch {
+        failed += 1;
+      }
+    }
+    if (failed > 0) {
+      alert(`${failed}/${reviewable.length} approve(s) failed`);
     }
     refetch();
   };
@@ -246,7 +299,7 @@ export function BookDetail({
   const currentTargetChapters = settingsTargetChapters ?? book.targetChapters ?? 0;
   const currentStatus = settingsStatus ?? (book.status as BookStatus);
 
-  const exportHref = `/api/books/${bookId}/export?format=${exportFormat}${exportApprovedOnly ? "&approvedOnly=true" : ""}`;
+  const exportHref = `/api/v1/books/${bookId}/export?format=${exportFormat}${exportApprovedOnly ? "&approvedOnly=true" : ""}`;
 
   return (
     <div className="space-y-8 fade-in">
@@ -351,7 +404,7 @@ export function BookDetail({
             </button>
           )}
           <button
-            onClick={() => (nav as { toTruth?: (id: string) => void }).toTruth?.(bookId)}
+            onClick={() => nav.toTruth(bookId)}
             className="flex items-center gap-2 px-4 py-2 text-xs font-bold bg-secondary/50 text-muted-foreground rounded-lg hover:text-foreground hover:bg-secondary transition-all border border-border/50"
           >
             <Database size={14} />
@@ -490,14 +543,20 @@ export function BookDetail({
                       {ch.status === "ready-for-review" && (
                         <>
                           <button
-                            onClick={async () => { await postApi(`/books/${bookId}/chapters/${ch.number}/approve`); refetch(); }}
+                            onClick={async () => {
+                              try { await postApi(`/books/${bookId}/chapters/${ch.number}/approve`); refetch(); }
+                              catch (e) { alert(e instanceof Error ? e.message : "Approve failed"); }
+                            }}
                             className="p-2 rounded-lg bg-emerald-500/10 text-emerald-600 hover:bg-emerald-500 hover:text-white transition-all shadow-sm"
                             title={t("book.approve")}
                           >
                             <Check size={14} />
                           </button>
                           <button
-                            onClick={async () => { await postApi(`/books/${bookId}/chapters/${ch.number}/reject`); refetch(); }}
+                            onClick={async () => {
+                              try { await postApi(`/books/${bookId}/chapters/${ch.number}/reject`); refetch(); }
+                              catch (e) { alert(e instanceof Error ? e.message : "Reject failed"); }
+                            }}
                             className="p-2 rounded-lg bg-destructive/10 text-destructive hover:bg-destructive hover:text-white transition-all shadow-sm"
                             title={t("book.reject")}
                           >
@@ -507,9 +566,13 @@ export function BookDetail({
                       )}
                       <button
                         onClick={async () => {
-                          const auditResult = await fetchJson<{ passed?: boolean; issues?: unknown[] }>(`/books/${bookId}/audit/${ch.number}`, { method: "POST" });
-                          alert(auditResult.passed ? "Audit passed" : `Audit failed: ${auditResult.issues?.length ?? 0} issues`);
-                          refetch();
+                          try {
+                            const auditResult = await fetchJson<{ passed?: boolean; issues?: unknown[] }>(`/books/${bookId}/audit/${ch.number}`, { method: "POST" });
+                            alert(auditResult.passed ? "Audit passed" : `Audit failed: ${auditResult.issues?.length ?? 0} issues`);
+                            refetch();
+                          } catch (e) {
+                            alert(e instanceof Error ? e.message : "Audit failed");
+                          }
                         }}
                         className="p-2 rounded-lg bg-secondary text-muted-foreground hover:text-primary hover:bg-primary/10 transition-all shadow-sm"
                         title={t("book.audit")}
@@ -525,6 +588,16 @@ export function BookDetail({
                         {rewritingChapters.includes(ch.number)
                           ? <div className="w-3.5 h-3.5 border-2 border-muted-foreground/20 border-t-muted-foreground rounded-full animate-spin" />
                           : <RotateCcw size={14} />}
+                      </button>
+                      <button
+                        onClick={() => handleSync(ch.number)}
+                        disabled={syncingChapters.includes(ch.number) || ch.number !== latestPersistedChapter}
+                        className="p-2 rounded-lg bg-secondary text-muted-foreground hover:text-primary hover:bg-primary/10 transition-all shadow-sm disabled:opacity-50"
+                        title={data?.book.language === "en" ? "Sync truth/state from edited chapter" : "根据已编辑章节同步 truth/state"}
+                      >
+                        {syncingChapters.includes(ch.number)
+                          ? <div className="w-3.5 h-3.5 border-2 border-muted-foreground/20 border-t-muted-foreground rounded-full animate-spin" />
+                          : <RefreshCw size={14} />}
                       </button>
                       <select
                         disabled={revisingChapters.includes(ch.number)}

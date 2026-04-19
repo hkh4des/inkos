@@ -34,13 +34,6 @@ export function resolveCliLanguage(language?: string): CliLanguage {
   return language === "en" ? "en" : "zh";
 }
 
-export function formatBookCreateResume(language: CliLanguage, bookId: string): string {
-  return localize(language, {
-    zh: `继续未完成的书籍创建：「${bookId}」...`,
-    en: `Resuming incomplete book creation for "${bookId}"...`,
-  });
-}
-
 export function formatBookCreateCreating(
   language: CliLanguage,
   title: string,

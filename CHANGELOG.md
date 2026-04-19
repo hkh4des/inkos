@@ -1,5 +1,121 @@
 # Changelog
 
+## v1.3.0
+
+### Release Focus
+
+Studio 2.0 正式发布。`inkos` 现在默认直接启动 Studio，本地 Web 工作台成为主入口；TUI 保留为 `inkos tui`。
+
+### 新功能
+
+- **Studio 2.0 默认入口**：`inkos` 直接启动 Studio，首页、服务商管理、写作工作台统一为新的主交互入口
+- **自定义 OpenAI-compatible 服务**：Studio 现支持自定义 `baseUrl`、协议类型（`chat` / `responses`）与流式开关，兼容更多中转站和聚合网关
+- **配置来源切换**：Studio 新增 `.env` 与 Studio 配置的显式切换，不再只能被目录里的 `INKOS_LLM_*` 被动覆盖
+- **原生 custom transport**：对 `custom` 服务新增原生 fetch 请求链，减少对 SDK 路径的单点依赖，提升兼容性
+
+### 改进
+
+- **服务测试更真实**：服务页测试不再只测 `/models`，还会执行最小生成探测，避免“测试连接通过但聊天失败”的假阳性
+- **服务保存流程优化**：保存成功后自动返回服务商管理页，顶部首页和返回入口更醒目
+- **密钥回填**：服务详情页会重新加载已保存的 key，避免重新打开后误以为 key 丢失
+- **错误可见性增强**：Studio 聊天不再用 `Acknowledged.` 掩盖空回复，会直接显示真实上游错误
+
+### Bug Fixes
+
+- 修复 `llm.services + defaultModel + secrets` 与运行时加载契约不一致的问题
+- 修复 `custom:*` 服务在测试连接、模型列表与 `/api/v1/agent` 之间链路不一致的问题
+- 修复 `inkos` 启动 Studio 时因未设置默认模型而直接抛出 `llm.model` 校验错误
+- 修复自定义服务非流式 / SSE 返回被误当作普通 JSON 解析的问题
+
+## v1.2.0
+
+### Release Focus
+
+统一交互内核——TUI、Studio、`inkos interact`、OpenClaw Skill 共享同一套自然语言理解和执行运行时。
+
+### 新功能
+
+- **共享交互运行时**（`packages/core/src/interaction/`）：自然语言路由器（15+ intent）、会话管理、编辑事务控制器、事件追踪、阶段遥测
+- **Ink TUI 仪表盘**：`inkos` 直接进入全屏 Ink + React 仪表盘，对话式创作，slash 命令 Tab 补全，主题动效（writing/auditing/revising/planning 各有独立动画），i18n 中英双语
+- **Studio 助手面板**：右侧 AI 助手接入共享交互内核，自然语言操作书籍（写章、改名、审计、导出），SSE 实时状态推送，执行阶段图标
+- **对话式建书**：通过 Studio 助手自然语言对话逐步构思书籍概念、设定、目标章数，草稿就绪后一键创建
+- **全书实体改名**：`把林烬改成张三` / `/rename 林烬 => 张三`，全量扫描章节 + 真相文件一次替换
+- **单章文本替换**：`/replace 5 旧文本 => 新文本`，精确修补指定章节
+- **`inkos interact --json`**：共享交互 JSON 入口，返回 request / response / session / events，供 OpenClaw 和外部 Agent 直接调用
+- **Thinking 模型温度夹制**（PR #174）：kimi-k2.5 等 thinking 模型自动 temperature=1，兼容 per-call 温度调参，每模型只 warn 一次
+
+### 改进
+
+- Studio ChatBar 去重：`executeCommand()` 提取公共逻辑，消除 handleSubmit/handleQuickCommand 80 行重复
+- Studio ChatBar SSE effect 用 `loadingRef` 替代 stale closure
+- Studio 下拉菜单 z-index 修复：移除 paper-sheet 的 transform（消除 stacking context），菜单打开时 card 提升 z-50
+- Studio agent 响应修复：使用 `result.responseText` 而非 `session.messages.at(-1)`
+- TUI 主题扩展：语义色（成功/错误/活跃/空闲）+ 角色色（用户/助手/系统）
+- TUI 状态徽标：✓ 完成 / ✗ 失败 / ✎ 写作 / ◇ 规划 / ◈ 等待决策
+- TUI i18n 修复：`stageLabels` 移入 TuiCopy，消除 hardcoded 状态字符串
+- Studio 死代码清理（PR #176）：移除未使用的 shadcn 组件、`dotenv`、`shadcn`、`tw-animate-css`、`class-variance-authority`，-2800 行
+
+### Bug Fixes
+
+- Studio ChatBar 助手回复丢失：session 历史覆盖导致 response 被静默丢弃
+- Studio BookMenu 下拉被下层 card 遮挡：fadeIn 动画的 transform 创建 stacking context
+- Studio GenreManager 用 `window.confirm` 替换为 `ConfirmDialog`
+- Studio BookDetail Nav `toTruth` 类型断言 hack 修复
+- Studio ChapterReader/Dashboard approve/reject 缺失错误处理
+- ChatBar curly quote 编码导致 esbuild 解析失败
+
+---
+
+## v1.1.1
+
+### Release Focus
+
+- 回退到稳定的 `v6 + bugfix` 主线，替换掉不稳定的 `v8` 最新版本
+
+### Bug Fixes
+
+- **#151** — Architect section 解析支持 `book-rules` / `Book Rules` / 全角冒号等标题漂移，不再因 `book_rules` 区块轻微变形而创建失败
+- **#152** — State validator 改为 fail-closed：空响应直接报错，并恢复多行 JSON 平衡提取，避免 `passed` 字段丢失时被误判
+- **#154** — 后写规则增加正文章节号指称检测，拦截 `第33章` / `Chapter 33` 一类叙述
+- **#155** — `repair-state` 支持对最新 `state-degraded` 章节进行同章重算，不再报 `delta chapter N goes backwards`
+
+### Improvements
+
+- `ai-tells` / `sensitive-words` 增加中英双语规则路径，英文书修订链不再混入中文 issue
+- import / continuation / series 的 prompt 与语言传递补齐，foundation reviewer 结果能更稳定回灌
+- reviser 修订链重新接入 `hookDebtBlock`，局部修订时能看到 hook 债务证据
+
+---
+
+## v1.1.0
+
+写作管线全面升级。通过 Meta-Harness 方法论驱动的多轮 autoresearch 实验，从零模式质量从 75 分提升至 92 分，同人模式从 39 分提升至 82+ 分。
+
+### 新功能
+
+- **Foundation Reviewer**：建书时新增独立审核 Agent，5 维度百分制打分（原作 DNA 保留、新叙事空间、核心冲突、开篇节奏、节奏可行性），不达 80 分自动驳回并将审核意见反馈给 Architect 重新生成
+- **新时空要求**：同人模式（canon/au/ooc/cp）必须设计原创分岔点，不允许复述原作剧情
+- **Hook Seed Excerpt**：伏笔回收时，Composer 从 chapter_summaries 提取原始种子场景的原文片段注入 Writer 上下文，替代了复杂的 lifecycle pressure 系统
+- **Review Reject 回滚**：`inkos review reject` 回滚 state 到被拒章节之前的快照，丢弃下游章节和记忆索引
+- **State Validation Recovery**：state 校验失败自动重试 settler，仍失败则降级保存，支持 `inkos write repair-state` 手动修复
+- **Audit Drift 隔离**：审计纠偏写入独立的 `audit_drift.md`，不再追加到 `current_state.md`
+- **标题坍缩修复**：检测近期标题主题聚集，从正文提取新关键词重生标题
+- **Hook 预算提示**：活跃伏笔 ≥10 时显示预算警告，引导优先回收旧债
+- **章节结尾摘要**：提取最近 3 章结尾句注入上下文，防止结构性重复
+- **情绪/节奏检测**：mood 单调和标题聚集检测，序列级 warning 不计入修订 blockingCount
+- **同人风格提取**：`fanfic init` 和 `import chapters` 自动生成 style_guide.md + style_profile.json
+- **Governed 路径补全**：续写/同人的 parent_canon.md 和 fanfic_canon.md 通过 Governed 路径注入 Writer
+- **自定义 HTTP Headers**：`INKOS_LLM_HEADERS` 环境变量注入自定义 HTTP 头
+
+### Bug Fixes
+
+- 章节号污染修复：叙事文本中的数字不再被误解析为章节进度
+- hook 排序修复：mustAdvance 从降序修正为升序（选最久未推进的）
+- Outline 匹配修复：支持章节范围格式，防止 Chapter 1 误匹配 Chapter 10
+- approve 不覆盖快照、style 提取 graceful degrade、Studio 热加载 LLM 配置、主题持久化
+
+---
+
 ## v1.0.2
 
 ### Bug Fixes

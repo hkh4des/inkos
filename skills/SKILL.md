@@ -1,8 +1,8 @@
 ---
 name: inkos
 description: Autonomous novel writing CLI agent with web workbench (InkOS Studio) - use for creative fiction writing, novel generation, style imitation, chapter continuation/import, EPUB export, AIGC detection, and fan fiction. Native English support with 10 built-in English genre profiles (LitRPG, Progression Fantasy, Isekai, Cultivation, System Apocalypse, Dungeon Core, Romantasy, Sci-Fi, Tower Climber, Cozy Fantasy). Also supports Chinese web novel genres (xuanhuan, xianxia, urban, horror, other). Multi-agent pipeline, two-phase writer (creative + settlement), 33-dimension auditing, token usage analytics, creative brief input, structured logging (JSON Lines), multi-model routing, custom OpenAI-compatible provider support, and InkOS Studio web UI for visual book management, chapter review, real-time writing progress, market radar, and analytics.
-version: 2.2.0
-metadata: { "openclaw": { "emoji": "📖", "requires": { "bins": ["inkos", "node"], "env": [] }, "primaryEnv": "", "homepage": "https://github.com/Narcooo/inkos", "install": [{ "id": "npm", "kind": "node", "package": "@actalk/inkos", "label": "Install InkOS (npm)" }] } }
+version: 2.3.2
+metadata: { "openclaw": { "emoji": "📖", "requires": { "bins": ["inkos", "node"], "env": ["OPENAI_API_KEY"] }, "primaryEnv": "OPENAI_API_KEY", "homepage": "https://github.com/Narcooo/inkos", "install": [{ "id": "npm", "kind": "node", "package": "@actalk/inkos", "label": "Install InkOS (npm)" }] } }
 ---
 
 # InkOS - Autonomous Novel Writing Agent
@@ -37,9 +37,11 @@ Truth files are persisted as schema-validated JSON (`story/state/*.json`) with m
 inkos init my-writing-project
 
 # Configure your LLM provider (OpenAI, Anthropic, or any OpenAI-compatible API)
-inkos config set-global --provider openai --base-url https://api.openai.com/v1 --api-key sk-xxx --model gpt-4o
-# For compatible/proxy endpoints, use --provider custom:
-# inkos config set-global --provider custom --base-url https://your-proxy.com/v1 --api-key sk-xxx --model gpt-4o
+# Prefer --api-key-env so the key never appears in shell history:
+export OPENAI_API_KEY=sk-xxx
+inkos config set-global --provider openai --base-url https://api.openai.com/v1 --api-key-env OPENAI_API_KEY --model gpt-4o
+# For compatible/proxy endpoints, use --provider custom and point ONLY to trusted endpoints:
+# inkos config set-global --provider custom --base-url https://your-trusted-proxy.com/v1 --api-key-env OPENAI_API_KEY --model gpt-4o
 ```
 
 ### Multi-Model Routing (Optional)
@@ -112,7 +114,27 @@ inkos status
    inkos review approve-all
    ```
 
-### Workflow 2.5: Steering Chapter Focus Before Writing
+### Workflow 2.5: Shared Natural-Language Control (Recommended For OpenClaw)
+
+When InkOS is being driven by OpenClaw or another external agent, prefer the shared interaction executor instead of stitching together many ad-hoc CLI calls:
+
+```bash
+inkos interact --json --message "continue the current book, but keep the pacing tighter"
+inkos interact --json --message "rewrite chapter 3"
+inkos interact --json --book my-book --message "switch to auto mode"
+```
+
+This returns a structured payload containing:
+- the routed request
+- assistant response text
+- updated interaction session
+- execution state
+- pending decision
+- recent interaction events
+
+Use this as the primary OpenClaw entry because it shares the same control layer as the project TUI.
+
+### Workflow 2.6: Steering Chapter Focus Before Writing
 
 Use this when the user says things like "pull focus back to the mentor conflict", "pause the merchant guild subplot", or "change what the next chapter should prioritize".
 
@@ -288,6 +310,39 @@ inkos fanfic init --title "What If" --from source.txt --mode au --genre other
 - Fanfic-specific audit dimensions and information boundary controls
 - Ensures new content stays consistent with source canon (or deliberately diverges in au/ooc modes)
 
+### Workflow 12: Rename Characters or Entities Across Entire Book
+
+```bash
+# Via interact
+inkos interact --json --message "把林烬改成张三"
+inkos interact --json --message "rename Lin Jin to Zhang San"
+
+# Via slash command
+inkos interact --json --message "/rename 林烬 => 张三"
+```
+- Scans all chapters + all truth files (story_bible, current_state, character_matrix, etc.)
+- Replaces every occurrence in one pass
+- Returns count of files touched
+
+### Workflow 13: Patch Specific Text in a Chapter
+
+```bash
+inkos interact --json --message "/replace 5 旧文本 => 新文本"
+```
+- Precisely replaces text in chapter 5 only
+- Marks chapter for review after patching
+
+### Workflow 14: Interactive TUI Dashboard
+
+```bash
+inkos
+```
+- Launches a full-screen Ink + React dashboard with conversational creation
+- Slash command autocomplete (Tab), input history (arrow keys)
+- Themed activity animations per operation (writing, auditing, revising, planning)
+- Bilingual i18n (Chinese / English)
+- Shares the same interaction kernel as `inkos interact` and Studio
+
 ## InkOS Studio (Web Workbench)
 
 `inkos studio` launches a local web UI (default port 4567) that provides a visual interface for all InkOS operations:
@@ -308,6 +363,8 @@ inkos fanfic init --title "What If" --from source.txt --mode au --genre other
 inkos studio              # Start on default port 4567
 inkos studio -p 8080      # Start on custom port
 ```
+
+The right-side **AI Assistant panel** in Studio shares the same interaction kernel as TUI and `inkos interact`. You can type natural language commands (rename entities, write chapters, audit, export) directly in the assistant panel.
 
 ## Advanced: Natural Language Agent Mode
 
@@ -454,6 +511,8 @@ inkos genre copy xuanhuan
 | `inkos studio` | Start web workbench | `-p` for port. Local web UI for book management |
 | `inkos fanfic show [book-id]` | Display parsed fanfic canon | Shows imported source material analysis |
 | `inkos fanfic refresh [book-id]` | Re-import and regenerate fanfic canon | `--from <file>` for updated source material |
+| `inkos interact` | Shared interaction endpoint | `--json`, `--message`, `--book`. Primary entry for OpenClaw |
+| `inkos` (no args) | Launch TUI dashboard | Full-screen Ink + React interactive dashboard |
 
 ## Error Handling
 
@@ -504,6 +563,16 @@ inkos down
 7. **Batch generation**: Generate multiple chapters together (better continuity)
 8. **Check analytics**: Use `inkos analytics` to track quality trends over time
 9. **Export frequently**: Keep backups with `inkos export`
+
+## Security & Trust
+
+- **License**: the ClawHub skill descriptor is MIT-0 per platform policy, but the underlying `@actalk/inkos`, `@actalk/inkos-core`, and `@actalk/inkos-studio` npm packages are **AGPL-3.0-only**. Running InkOS and distributing modified versions are governed by AGPL. Full source on GitHub for auditability.
+- **No install hooks**: npm package has no `preinstall`/`postinstall`/`install` scripts. Install is inert.
+- **Local-only file I/O**: all read/write stays inside the project directory (`books/*`, `inkos.json`, `inkos.log`). No writes outside the working directory.
+- **No telemetry**: InkOS does not phone home, collect usage stats, or ship any data to InkOS-controlled servers. The only outbound traffic is to the LLM provider endpoint you explicitly configure.
+- **Credential handling**: always prefer `--api-key-env <VAR_NAME>` over `--api-key <literal>` so keys never hit shell history. Keys are stored in `inkos.json` under your project directory — treat it like a secret and add it to `.gitignore` if you commit the project.
+- **Custom provider base-URL**: `--provider custom` forwards your API key to whatever URL you specify. Only point it at endpoints you trust (your own proxy or an audited reverse-proxy). Never paste an untrusted `--base-url`.
+- **No elevated privileges**: InkOS requires no sudo, no global state mutation, no network listening port (Studio binds `localhost:4567` only).
 
 ## Support & Resources
 

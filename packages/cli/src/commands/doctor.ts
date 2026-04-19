@@ -8,6 +8,87 @@ import {
   inspectNodeRuntimePinFiles,
 } from "../runtime-requirements.js";
 
+function buildDoctorProbePlans(
+  preferredApiFormat: "chat" | "responses" | undefined,
+  preferredStream: boolean | undefined,
+): Array<{ apiFormat: "chat" | "responses"; stream: boolean }> {
+  const plans: Array<{ apiFormat: "chat" | "responses"; stream: boolean }> = [];
+  const seen = new Set<string>();
+  const push = (apiFormat: "chat" | "responses", stream: boolean) => {
+    const key = `${apiFormat}:${stream ? "1" : "0"}`;
+    if (seen.has(key)) return;
+    seen.add(key);
+    plans.push({ apiFormat, stream });
+  };
+
+  if (preferredApiFormat) {
+    push(preferredApiFormat, preferredStream ?? false);
+    push(preferredApiFormat, !(preferredStream ?? false));
+  }
+  const alternate = preferredApiFormat === "responses" ? "chat" : "responses";
+  push(alternate, false);
+  push(alternate, true);
+  push("chat", false);
+  push("chat", true);
+  push("responses", false);
+  push("responses", true);
+  return plans;
+}
+
+export function buildDoctorModelCandidates(
+  preferredModel: string | undefined,
+  discoveredModels: Array<{ id: string; name: string }>,
+): string[] {
+  const seen = new Set<string>();
+  const candidates: string[] = [];
+  const push = (value: string | undefined | null) => {
+    if (!value || value.trim().length === 0) return;
+    const model = value.trim();
+    if (seen.has(model)) return;
+    seen.add(model);
+    candidates.push(model);
+  };
+
+  push(preferredModel);
+  for (const model of discoveredModels) push(model.id);
+  push("gpt-5.4");
+  push("gpt-4o");
+  push("claude-sonnet-4-6");
+  push("MiniMax-M2.7");
+  push("kimi-k2.5");
+  push("gemini-2.5-flash");
+  return candidates;
+}
+
+export function resolveDoctorModelsBaseUrl(
+  service: string | undefined,
+  baseUrl: string,
+  resolveServiceModelsBaseUrl: (service: string) => string | undefined,
+): string {
+  if (!service || service.length === 0) {
+    return baseUrl;
+  }
+  return resolveServiceModelsBaseUrl(service) ?? baseUrl;
+}
+
+async function fetchDoctorModels(
+  modelsBaseUrl: string,
+  apiKey: string,
+): Promise<Array<{ id: string; name: string }>> {
+  const modelsUrl = modelsBaseUrl.replace(/\/$/, "") + "/models";
+  try {
+    const res = await fetch(modelsUrl, {
+      headers: { Authorization: `Bearer ${apiKey}` },
+      signal: AbortSignal.timeout(10_000),
+    });
+    if (!res.ok) return [];
+    const json = await res.json() as { data?: Array<{ id: string }> };
+    return (json.data ?? []).map((model) => ({ id: model.id, name: model.id }));
+  } catch {
+    return [];
+  }
+}
+
 export const doctorCommand = new Command("doctor")
   .description("Check environment and project health")
   .option("--repair-node-runtime", "Write .nvmrc and .node-version pinned to Node 22 for this project")
@@ -149,7 +230,7 @@ export const doctorCommand = new Command("doctor")
 
     // 6. API connectivity test
     try {
-      const { createLLMClient, chatCompletion, LLMConfigSchema, isApiKeyOptionalForEndpoint } = await import("@actalk/inkos-core");
+      const { createLLMClient, chatCompletion, LLMConfigSchema, isApiKeyOptionalForEndpoint, resolveServiceModelsBaseUrl } = await import("@actalk/inkos-core");
       const { loadConfig } = await import("../utils.js");
 
       let llmConfig;
@@ -188,17 +269,64 @@ export const doctorCommand = new Command("doctor")
           detail: `provider=${llmConfig.provider} model=${llmConfig.model} stream=${llmConfig.stream ?? true} baseUrl=${llmConfig.baseUrl}`,
         });
 
-        const client = createLLMClient(llmConfig);
         log("\n  [..] Testing API connectivity...");
-        const response = await chatCompletion(client, llmConfig.model, [
-          { role: "user", content: "Say OK" },
-        ], { maxTokens: 16 });
+
+        let connected = false;
+        let detectedDetail = "";
+        let lastError = "Unknown error";
+        const modelsBaseUrl = resolveDoctorModelsBaseUrl(
+          typeof llmConfig.service === "string" ? llmConfig.service : undefined,
+          llmConfig.baseUrl,
+          resolveServiceModelsBaseUrl,
+        );
+        const discoveredModels = (llmConfig.apiKey && modelsBaseUrl)
+          ? await fetchDoctorModels(modelsBaseUrl, llmConfig.apiKey)
+          : [];
+        const modelCandidates = (llmConfig.provider === "openai" || discoveredModels.length > 0)
+          ? buildDoctorModelCandidates(llmConfig.model, discoveredModels)
+          : [llmConfig.model];
+        const plans = llmConfig.provider === "openai"
+          ? buildDoctorProbePlans(llmConfig.apiFormat, llmConfig.stream)
+          : [{ apiFormat: (llmConfig.apiFormat ?? "chat") as "chat" | "responses", stream: llmConfig.stream ?? true }];
+
+        for (const model of modelCandidates) {
+          for (const plan of plans) {
+            try {
+              const client = createLLMClient({
+                ...llmConfig,
+                model,
+                apiFormat: plan.apiFormat,
+                stream: plan.stream,
+              });
+              const response = await chatCompletion(client, model, [
+                { role: "user", content: "Say OK" },
+              ], { maxTokens: 16 });
+
+              connected = true;
+              detectedDetail = `OK (model: ${model}, apiFormat=${plan.apiFormat}, stream=${plan.stream}, tokens: ${response.usage.totalTokens})`;
+              break;
+            } catch (error) {
+              lastError = error instanceof Error ? error.message : String(error);
+            }
+          }
+          if (connected) {
+            break;
+          }
+        }
 
         checks.push({
           name: "API Connectivity",
-          ok: true,
-          detail: `OK (model: ${llmConfig.model}, tokens: ${response.usage.totalTokens})`,
+          ok: connected,
+          detail: connected ? detectedDetail : lastError.split("\n")[0]!,
         });
+
+        if (!connected && llmConfig.provider === "openai") {
+          checks.push({
+            name: "  Hint",
+            ok: false,
+            detail: "当前已自动尝试 chat/responses 与流式开关组合；如果仍失败，问题更可能在模型名、baseUrl 路径或服务商兼容性本身。",
+          });
+        }
       }
     } catch (e) {
       const errMsg = String(e);

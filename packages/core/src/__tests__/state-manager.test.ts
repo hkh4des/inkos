@@ -472,6 +472,22 @@ describe("StateManager", () => {
       expect(ledger).toBe("# Ledger at ch1");
     });
 
+    it("removes live optional truth files that are absent from the snapshot", async () => {
+      const storyDir = join(manager.bookDir(bookId), "story");
+      await rm(join(storyDir, "particle_ledger.md"));
+      await manager.snapshotState(bookId, 1);
+
+      await writeFile(
+        join(storyDir, "particle_ledger.md"),
+        "# Ledger added after snapshot",
+        "utf-8",
+      );
+
+      const restored = await manager.restoreState(bookId, 1);
+      expect(restored).toBe(true);
+      await expect(stat(join(storyDir, "particle_ledger.md"))).rejects.toThrow();
+    });
+
     it("restores structured runtime state files from snapshot/state", async () => {
       const stateDir = manager.stateDir(bookId);
       await mkdir(stateDir, { recursive: true });
@@ -660,6 +676,22 @@ describe("StateManager", () => {
       expect(fulfilled).toHaveLength(1);
       expect(rejected).toHaveLength(1);
       expect(String(rejected[0]?.reason)).toMatch(/is locked/);
+    });
+
+    it("reclaims same-process stale lock when no active write is in progress", async () => {
+      await mkdir(manager.bookDir("lock-book-self"), { recursive: true });
+      const lockPath = join(manager.bookDir("lock-book-self"), ".write.lock");
+      // Simulate a stale lock left by our own process (e.g. after a failed pipeline)
+      await writeFile(lockPath, `pid:${process.pid} ts:${Date.now() - 60000}`, "utf-8");
+
+      // Should auto-reclaim since our process knows it's not actively writing this book
+      const release = await manager.acquireBookLock("lock-book-self");
+      expect(typeof release).toBe("function");
+
+      const lockData = await readFile(lockPath, "utf-8");
+      expect(lockData).toContain(`pid:${process.pid}`);
+
+      await release();
     });
 
     it("reclaims a stale lock when the recorded pid is no longer alive", async () => {

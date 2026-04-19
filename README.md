@@ -3,13 +3,14 @@
   <img src="assets/inkos-text.svg" width="240" height="65" alt="InkOS">
 </p>
 
-<h1 align="center">Autonomous Novel Writing CLI AI Agent<br><sub>自动化小说写作 CLI AI Agent</sub></h1>
+<h1 align="center">Autonomous Novel Writing AI Agent<br><sub>自动化小说写作 AI Agent</sub></h1>
 
 <p align="center">
   <a href="https://www.npmjs.com/package/@actalk/inkos"><img src="https://img.shields.io/npm/v/@actalk/inkos.svg?color=cb3837&logo=npm" alt="npm version"></a>
-  <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-blue.svg" alt="License: MIT"></a>
-  <a href="https://nodejs.org/"><img src="https://img.shields.io/badge/node-%3E%3D20.0.0-brightgreen.svg" alt="Node.js"></a>
-  <a href="https://www.typescriptlang.org/"><img src="https://img.shields.io/badge/TypeScript-5.x-3178C6.svg?logo=typescript&logoColor=white" alt="TypeScript"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/License-AGPL%20v3-blue.svg" alt="License: AGPL-3.0"></a>
+  <a href="https://github.com/Narcooo/inkos/stargazers"><img src="https://img.shields.io/github/stars/Narcooo/inkos?style=flat&logo=github&color=yellow" alt="GitHub stars"></a>
+  <a href="https://www.npmjs.com/package/@actalk/inkos"><img src="https://img.shields.io/npm/dm/@actalk/inkos?color=cb3837&logo=npm&label=downloads" alt="npm downloads"></a>
+  <a href="https://clawhub.ai/narcooo/inkos"><img src="https://img.shields.io/badge/🦞%20ClawHub-Skill-FF6B35?labelColor=1a1a1a" alt="ClawHub Skill"></a>
 </p>
 
 <p align="center">
@@ -20,9 +21,20 @@
 
 AI Agent 自主写小说——写、审、改，全程接管。覆盖玄幻、仙侠、都市、科幻等多种风格，支持续写、番外、同人、仿写等创作形式。人工审核门控确保你始终掌控全局。已发布为 [OpenClaw](https://clawhub.ai/narcooo/inkos) skill。
 
-**InkOS Studio 正式发布！** — `inkos studio` 启动本地 Web 工作台。书籍管理、章节审阅编辑、实时写作进度、市场雷达、数据分析、AI 检测、文风分析、题材管理、守护进程控制、真相文件编辑——CLI 能做的，Studio 全部可视化。
+**InkOS Studio 2.0 正式发布！** — 直接运行 `inkos` 启动本地 Web 工作台。书籍管理、章节审阅编辑、实时写作进度、市场雷达、数据分析、AI 检测、文风分析、题材管理、守护进程控制、真相文件编辑——CLI 能做的，Studio 全部可视化。
+
+**InkOS TUI 正式发布！** — 运行 `inkos tui` 进入全屏交互仪表盘。对话式创作、自然语言操作书籍、slash 命令补全、主题动效——TUI、Studio、OpenClaw 共享同一套交互内核。
 
 **Native English novel writing now supported！** Set `--lang en` to write in English. See [English README](README.en.md) for details.
+
+## 欢迎交流
+
+> 当前更新相对频繁，后续会持续新增功能与优化写作效果。
+> 欢迎加群反馈问题、提出需求，也欢迎关注项目动态 — 我们的目标是做最强的基于小说的内容生态创作 AI Agent。
+
+<p align="center">
+  <img src="assets/wechat-group-v6.jpg" width="300" alt="微信交流群">
+</p>
 
 ## 快速开始
 
@@ -42,7 +54,21 @@ clawhub install inkos          # 从 ClawHub 安装 InkOS Skill
 
 通过 npm 安装或克隆本项目时，`skills/SKILL.md` 已包含在内，🦞 可直接读取——无需额外从 ClawHub 安装。
 
-安装后，Claw 可通过 `exec` 调用 InkOS 的原子命令和控制面操作（`plan chapter`/`compose chapter`/`draft`/`audit`/`revise`/`write next`），`--json` 输出结构化数据供 Claw 解析决策。推荐流程是先更新 `author_intent.md` 或 `current_focus.md`，再 `plan` / `compose`，最后决定是否 `draft` 或完整 `write next`。也可以在 [ClawHub](https://clawhub.ai) 搜索 `inkos` 在线查看。
+安装后，Claw 应优先通过共享交互入口调用 InkOS：
+
+```bash
+inkos interact --json --message "继续当前书，但把节奏再收紧一点"
+```
+
+这条入口直接走和项目 TUI 相同的交互执行内核，因此 OpenClaw、TUI、Studio 共用同一套控制脑。返回的 JSON 包含：
+- 解析后的 request
+- assistant 文本回复
+- 更新后的 interaction session
+- execution state
+- pending decision
+- recent events
+
+`plan chapter` / `compose chapter` / `draft` / `audit` / `revise` / `write next` 这些原子命令仍然保留，但更适合作为底层工具，而不是 OpenClaw 的首选入口。也可以在 [ClawHub](https://clawhub.ai) 搜索 `inkos` 在线查看。
 
 ### 配置
 
@@ -98,22 +124,18 @@ inkos config show-models        # 查看当前路由
 
 未单独配置的 Agent 自动使用全局模型。
 
-### v0.6 更新
+### v1.2 更新
 
-**结构化状态 + 伏笔治理 + 字数治理**
+**统一交互内核 + TUI 仪表盘 + Studio 助手**
 
-重点解决三个长篇写作的系统性问题：**20+ 章后上下文膨胀导致写作变慢甚至 400 报错**（Settler 全量注入 → JSON delta + 选择性检索）、**伏笔只加不收、回收率接近 0%**（Planner 排班 + Settler 盲区修补 + 审计追债）、**字数偏差 50%+ 且 normalizer 可能毁章**（LengthSpec + 安全网）。
-
-- 管线升级为 10-agent：新增 Planner、Composer、Observer、Reflector、Normalizer
-- 真相文件迁移到 `story/state/*.json`（Zod 校验），Settler 输出 JSON delta 而非全量 markdown，旧书自动迁移
-- Node 22+ 启用 SQLite 时序记忆数据库，按相关性检索历史事实
-- Planner 生成 `hookAgenda` 排班伏笔推进与回收，Settler working set 扩展覆盖 dormant debt
-- hookOps 新增 `mention` 语义防止假推进，`analyzeHookHealth` 审计伏笔债务，`evaluateHookAdmission` 拦截重复伏笔
-- 字数治理：`LengthSpec` + Normalizer 单 pass 修正，安全网防止归一化毁章
-- 用户 `INKOS_LLM_MAX_TOKENS` 作为全局上限生效，`llm.extra` 保留键自动过滤
-- 跨章重复检测、对话驱动引导、English variance brief、多角色场景阻力要求
-- 章节摘要去重、ESM node:sqlite 修复、consolidate 全角括号兼容
-- 双语 CLI 输出和日志
+- **共享交互运行时**：TUI、Studio、`inkos interact`、OpenClaw Skill 共用同一套自然语言理解 + 执行内核，支持 15+ 种意图（写作、修订、重写、改名、导出、切换书籍等）
+- **Ink TUI 仪表盘**：`inkos` 直接进入全屏交互式仪表盘（Ink + React），对话式创作体验，slash 命令自动补全，主题动效，i18n 双语
+- **Studio 助手面板**：右侧 AI 助手面板接入共享交互内核，支持自然语言操作书籍——改名、写章、审计、导出等，实时显示执行状态
+- **对话式建书**：通过自然语言对话逐步构思书籍设定，草稿就绪后一键创建
+- **全书实体改名**：`把林烬改成张三` 或 `/rename 林烬 => 张三`，全量扫描章节 + 真相文件，一次替换
+- **`inkos interact`**：共享交互 JSON 入口，OpenClaw / 外部 Agent 可直接调用
+- **Thinking 模型温度夹制**：kimi-k2.5 等 thinking 模型自动强制 temperature=1，兼容 per-call 温度调参
+- **Studio 死代码清理**：移除未使用的 shadcn 组件和依赖，-2800 行
 
 ### 写第一本书
 
@@ -393,7 +415,7 @@ pnpm test         # 运行测试
 pnpm typecheck    # 类型检查
 ```
 
-## 📈 Star History
+## Star History
 
 <a href="https://www.star-history.com/#Narcooo/inkos&type=date&legend=top-left">
  <picture>
@@ -415,4 +437,4 @@ pnpm typecheck    # 类型检查
 
 ## 许可证
 
-[MIT](LICENSE)
+[AGPL-3.0](LICENSE)

@@ -1,8 +1,11 @@
 import { describe, expect, it } from "vitest";
 import {
+  buildCreationDraftSummary,
+  canCreateFromDraft,
   defaultChapterWordsForLanguage,
   platformOptionsForLanguage,
   pickValidValue,
+  resolveDraftInstruction,
   waitForBookReady,
 } from "./BookCreate";
 
@@ -91,5 +94,68 @@ describe("waitForBookReady", () => {
       delayMs: 0,
       waitImpl: async () => undefined,
     })).rejects.toThrow("INKOS_LLM_API_KEY not set");
+  });
+});
+
+describe("resolveDraftInstruction", () => {
+  it("forces the first ideation turn through /new so an active book does not hijack the flow", () => {
+    expect(resolveDraftInstruction("我想写个港风商战悬疑", false)).toBe("/new 我想写个港风商战悬疑");
+    expect(resolveDraftInstruction("把世界观改成近未来港口城", true)).toBe("把世界观改成近未来港口城");
+  });
+});
+
+describe("canCreateFromDraft", () => {
+  it("accepts drafts explicitly marked ready", () => {
+    expect(canCreateFromDraft({
+      concept: "港风商战悬疑",
+      readyToCreate: true,
+      missingFields: [],
+    })).toBe(true);
+  });
+
+  it("accepts drafts that already have the minimum creation fields", () => {
+    expect(canCreateFromDraft({
+      concept: "港风商战悬疑",
+      title: "夜港账本",
+      genre: "urban",
+      targetChapters: 120,
+      chapterWordCount: 2800,
+      readyToCreate: false,
+      missingFields: [],
+    })).toBe(true);
+  });
+
+  it("rejects incomplete drafts", () => {
+    expect(canCreateFromDraft({
+      concept: "港风商战悬疑",
+      title: "夜港账本",
+      readyToCreate: false,
+      missingFields: ["genre", "targetChapters"],
+    })).toBe(false);
+  });
+});
+
+describe("buildCreationDraftSummary", () => {
+  it("surfaces the shared foundation draft in a user-facing order", () => {
+    expect(buildCreationDraftSummary({
+      concept: "港风商战悬疑，主角从灰产洗白。",
+      title: "夜港账本",
+      worldPremise: "近未来港口城，账本牵出多方势力。",
+      protagonist: "林砚，水货账房出身，擅长记账和看人。",
+      conflictCore: "洗白与旧债回潮的对撞。",
+      volumeOutline: "卷一先查账，再暴露港口旧案。",
+      blurb: "一个做灰产生意的人，准备在夜港洗白，却先被旧账拖回去。",
+      nextQuestion: "卷一先查账还是先砸场？",
+      missingFields: ["targetChapters"],
+      readyToCreate: false,
+    }, "zh")).toEqual([
+      { key: "title", label: "书名", value: "夜港账本" },
+      { key: "worldPremise", label: "世界观", value: "近未来港口城，账本牵出多方势力。" },
+      { key: "protagonist", label: "主角", value: "林砚，水货账房出身，擅长记账和看人。" },
+      { key: "conflictCore", label: "核心冲突", value: "洗白与旧债回潮的对撞。" },
+      { key: "volumeOutline", label: "卷纲方向", value: "卷一先查账，再暴露港口旧案。" },
+      { key: "blurb", label: "简介", value: "一个做灰产生意的人，准备在夜港洗白，却先被旧账拖回去。" },
+      { key: "nextQuestion", label: "下一步", value: "卷一先查账还是先砸场？" },
+    ]);
   });
 });

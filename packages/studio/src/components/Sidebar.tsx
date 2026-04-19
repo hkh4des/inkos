@@ -29,7 +29,7 @@ interface Nav {
   toDashboard: () => void;
   toBook: (id: string) => void;
   toBookCreate: () => void;
-  toConfig: () => void;
+  toServices: () => void;
   toDaemon: () => void;
   toLogs: () => void;
   toGenres: () => void;
@@ -87,10 +87,10 @@ export function Sidebar({ nav, activePage, sse, t }: {
             </span>
             <button
               onClick={nav.toBookCreate}
-              className="p-1 rounded-md text-muted-foreground hover:text-primary hover:bg-primary/10 transition-all group"
-              title={t("nav.newBook")}
+              className="flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] text-muted-foreground hover:text-primary hover:bg-primary/10 transition-all"
             >
-              <Plus size={14} className="group-hover:rotate-90 transition-transform duration-300" />
+              <Plus size={12} />
+              <span>{t("nav.newBook")}</span>
             </button>
           </div>
 
@@ -101,7 +101,7 @@ export function Sidebar({ nav, activePage, sse, t }: {
                 onClick={() => nav.toBook(book.id)}
                 className={`w-full group flex items-center gap-3 px-3 py-2 rounded-lg text-sm transition-all duration-200 ${
                   activePage === `book:${book.id}`
-                    ? "bg-primary/10 text-primary font-semibold"
+                    ? "bg-primary/10 text-primary font-medium"
                     : "text-foreground font-medium hover:text-foreground hover:bg-secondary/50"
                 }`}
               >
@@ -140,17 +140,17 @@ export function Sidebar({ nav, activePage, sse, t }: {
             <SidebarItem
               label={t("nav.config")}
               icon={<Settings size={16} />}
-              active={activePage === "config"}
-              onClick={nav.toConfig}
+              active={activePage === "services"}
+              onClick={nav.toServices}
             />
-            <SidebarItem
+{/*            <SidebarItem
               label={t("nav.daemon")}
               icon={<Zap size={16} />}
               active={activePage === "daemon"}
               onClick={nav.toDaemon}
               badge={daemon?.running ? t("nav.running") : undefined}
               badgeColor={daemon?.running ? "bg-emerald-500/10 text-emerald-500" : "bg-muted text-muted-foreground"}
-            />
+            />*/}
             <SidebarItem
               label={t("nav.logs")}
               icon={<Terminal size={16} />}
@@ -196,15 +196,17 @@ export function Sidebar({ nav, activePage, sse, t }: {
         </div>
       </div>
 
-      {/* Footer / Status Area */}
-      <div className="p-4 border-t border-border bg-secondary/40">
-        <div className="flex items-center gap-3 px-3 py-2 rounded-lg bg-card border border-border shadow-sm">
-          <div className={`w-2 h-2 rounded-full ${daemon?.running ? "bg-emerald-500 animate-pulse" : "bg-muted-foreground/40"}`} />
-          <span className="text-[11px] font-semibold text-foreground/80 uppercase tracking-wider">
-            {daemon?.running ? t("nav.agentOnline") : t("nav.agentOffline")}
-          </span>
+      {/* Footer / Status Area — only show when agent is online */}
+      {daemon?.running && (
+        <div className="p-4 border-t border-border bg-secondary/40">
+          <div className="flex items-center gap-3 px-3 py-2 rounded-lg bg-card border border-border shadow-sm">
+            <div className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+            <span className="text-[11px] font-semibold text-foreground/80 uppercase tracking-wider">
+              {t("nav.agentOnline")}
+            </span>
+          </div>
         </div>
-      </div>
+      )}
     </aside>
   );
 }
@@ -222,7 +224,7 @@ function SidebarItem({ label, icon, active, onClick, badge, badgeColor }: {
       onClick={onClick}
       className={`w-full group flex items-center gap-3 px-3 py-2 rounded-lg text-sm transition-all duration-200 ${
         active
-          ? "bg-secondary text-foreground font-semibold shadow-sm border border-border"
+          ? "bg-secondary text-foreground font-medium shadow-sm border border-border"
           : "text-foreground font-medium hover:text-foreground hover:bg-secondary/50"
       }`}
     >

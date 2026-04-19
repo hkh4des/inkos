@@ -31,8 +31,8 @@ export function findProjectRoot(): string {
   return process.cwd();
 }
 
-export async function loadConfig(options?: { readonly requireApiKey?: boolean }): Promise<ProjectConfig> {
-  return loadProjectConfig(findProjectRoot(), options);
+export async function loadConfig(options?: { readonly requireApiKey?: boolean; readonly projectRoot?: string }): Promise<ProjectConfig> {
+  return loadProjectConfig(options?.projectRoot ?? findProjectRoot(), options);
 }
 
 export function createClient(config: ProjectConfig) {

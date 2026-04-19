@@ -3,13 +3,14 @@
   <img src="assets/inkos-text.svg" width="240" height="65" alt="InkOS">
 </p>
 
-<h1 align="center">自律型小説執筆 CLI AIエージェント</h1>
+<h1 align="center">自律型小説執筆 AIエージェント</h1>
 
 <p align="center">
   <a href="https://www.npmjs.com/package/@actalk/inkos"><img src="https://img.shields.io/npm/v/@actalk/inkos.svg?color=cb3837&logo=npm" alt="npm version"></a>
-  <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-blue.svg" alt="License: MIT"></a>
-  <a href="https://nodejs.org/"><img src="https://img.shields.io/badge/node-%3E%3D20.0.0-brightgreen.svg" alt="Node.js"></a>
-  <a href="https://www.typescriptlang.org/"><img src="https://img.shields.io/badge/TypeScript-5.x-3178C6.svg?logo=typescript&logoColor=white" alt="TypeScript"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/License-AGPL%20v3-blue.svg" alt="License: AGPL-3.0"></a>
+  <a href="https://github.com/Narcooo/inkos/stargazers"><img src="https://img.shields.io/github/stars/Narcooo/inkos?style=flat&logo=github&color=yellow" alt="GitHub stars"></a>
+  <a href="https://www.npmjs.com/package/@actalk/inkos"><img src="https://img.shields.io/npm/dm/@actalk/inkos?color=cb3837&logo=npm&label=downloads" alt="npm downloads"></a>
+  <a href="https://clawhub.ai/narcooo/inkos"><img src="https://img.shields.io/badge/🦞%20ClawHub-Skill-FF6B35?labelColor=1a1a1a" alt="ClawHub Skill"></a>
 </p>
 
 <p align="center">
@@ -20,7 +21,9 @@
 
 小説の執筆・監査・修正を自律的に行うオープンソースCLIエージェント。人間によるレビューゲートにより、常にコントロールを維持できます。LitRPG、プログレッションファンタジー、異世界転生、ロマンタジー、SF など多数のジャンルに対応。続編・スピンオフ・二次創作・文体模倣ワークフローを内蔵。
 
-**InkOS Studio 正式リリース！** — `inkos studio` でローカルWebワークベンチを起動。書籍管理、章のレビュー＆編集、リアルタイム執筆進捗、市場レーダー、アナリティクス、AI検出、スタイル分析、ジャンル管理、デーモン制御、真実ファイル編集 — CLIの全機能をビジュアルで利用可能。
+**InkOS Studio 2.0 正式リリース！** — `inkos` を実行してローカル Web ワークベンチを起動。書籍管理、章のレビュー＆編集、リアルタイム執筆進捗、市場レーダー、アナリティクス、AI検出、スタイル分析、ジャンル管理、デーモン制御、真実ファイル編集 — CLI の全機能をビジュアルで利用可能。
+
+**InkOS TUI 正式リリース！** — `inkos tui` を実行してフルスクリーンのインタラクティブダッシュボードを起動。会話型創作、自然言語での書籍操作、スラッシュコマンド自動補完、テーマアニメーション——TUI、Studio、OpenClaw が同一のインタラクションカーネルを共有。
 
 **英語ネイティブ小説執筆に対応！** — 10種類の英語ジャンルプロファイルを内蔵し、専用のペーシングルール、疲労語リスト、監査ディメンションを搭載。`--lang en` を設定するだけですぐに始められます。
 
@@ -102,22 +105,18 @@ inkos config show-models        # 現在のルーティングを表示
 
 明示的なオーバーライドがないエージェントはグローバルモデルにフォールバックします。
 
-### v0.6 アップデート
+### v1.2 アップデート
 
-**構造化ステート + フック管理 + 文字数管理**
+**統一インタラクションカーネル + TUIダッシュボード + Studioアシスタント**
 
-長編執筆における3つのシステム的問題に対処：**20章超でのコンテキスト肥大化によるスローダウンと400エラー**（Settler全量注入 → JSONデルタ + 選択的取得）、**フックが蓄積するだけで解決せず、回収率がほぼ0%**（Plannerスケジューリング + Settler盲点修正 + 監査デット追跡）、**文字数乖離50%超とNormalizerによる章破壊**（LengthSpec + セーフティネット）。
-
-- パイプラインが10エージェントにアップグレード：Planner、Composer、Observer、Reflector、Normalizerを追加
-- 真実ファイルが `story/state/*.json` に移行（Zodバリデーション済み）；SettlerはフルMarkdownではなくJSONデルタを出力；既存書籍は自動マイグレーション
-- Node 22+ でSQLite時系列メモリデータベースを使用した関連性ベースの取得
-- Plannerが `hookAgenda` を生成してフックの進行と回収をスケジューリング；Settlerのワーキングセットを拡張して休眠中のデットもカバー
-- 新しい `mention` セマンティクスで偽のフック進行を防止；`analyzeHookHealth` がフックデットを監査；`evaluateHookAdmission` が重複フックをブロック
-- 文字数管理：`LengthSpec` + Normalizerの1パス補正とセーフティネットで破壊的正規化を防止
-- ユーザー設定の `INKOS_LLM_MAX_TOKENS` がグローバルキャップとして機能；`llm.extra` の予約キーは自動除去
-- クロスチャプター反復検出、対話駆動ガイダンス、英語バリアンスブリーフ、マルチキャラクターシーン耐性
-- チャプターサマリーの重複排除、ESM node:sqlite修正、全角括弧サポートの統合
-- バイリンガルCLI出力とログ
+- **共有インタラクションランタイム**：TUI、Studio、`inkos interact`、OpenClaw Skillが単一のNL理解+実行カーネルを共有、15以上のインテント（執筆、修正、書き直し、リネーム、エクスポート、書籍切り替え等）をサポート
+- **Ink TUIダッシュボード**：`inkos` でフルスクリーンの対話型ダッシュボード（Ink + React）を起動、会話型創作、スラッシュコマンド自動補完、テーマアニメーション、i18nバイリンガル対応
+- **Studioアシスタントパネル**：右側AIアシスタントパネルが共有インタラクションカーネルに接続——自然言語で書籍操作（リネーム、執筆、監査、エクスポート）、リアルタイム実行状態表示
+- **会話型ブック作成**：自然言語の対話で書籍設定を段階的にブレスト、ドラフト完成後ワンクリック作成
+- **全書エンティティリネーム**：`rename 林烬 to 張三` または `/rename 林烬 => 張三`——全章+真実ファイルを一括スキャン＆置換
+- **`inkos interact`**：共有インタラクションJSONエンドポイント、OpenClaw/外部Agentから直接呼び出し可能
+- **Thinkingモデル温度クランプ**：kimi-k2.5等のthinkingモデルをtemperature=1に自動固定、per-call温度オーバーライドと互換
+- **Studio不要コード削除**：未使用のshadcnコンポーネントと依存関係を削除、-2800行
 
 ### 最初の本を書く
 
@@ -400,4 +399,4 @@ pnpm typecheck    # 出力なしで型チェック
 
 ## ライセンス
 
-[MIT](LICENSE)
+[AGPL-3.0](LICENSE)

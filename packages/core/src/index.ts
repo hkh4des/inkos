@@ -78,9 +78,117 @@ export {
   gatherPlanningMaterials,
   type PlanningMaterials,
 } from "./utils/planning-materials.js";
+export {
+  AutomationModeSchema,
+  type AutomationMode,
+  normalizeAutomationMode,
+} from "./interaction/modes.js";
+export {
+  InteractionIntentTypeSchema,
+  type InteractionIntentType,
+  InteractionRequestSchema,
+  type InteractionRequest,
+} from "./interaction/intents.js";
+export {
+  ExecutionStatusSchema,
+  ExecutionStateSchema,
+  InteractionEventSchema,
+  type ExecutionStatus,
+  type ExecutionState,
+  type InteractionEvent,
+  isTerminalExecutionStatus,
+} from "./interaction/events.js";
+export {
+  BookCreationDraftSchema,
+  DraftRoundSchema,
+  PendingDecisionSchema,
+  InteractionMessageSchema,
+  InteractionSessionSchema,
+  type BookCreationDraft,
+  type DraftRound,
+  type PendingDecision,
+  type InteractionMessage,
+  type InteractionSession,
+  bindActiveBook,
+  clearCreationDraft,
+  clearPendingDecision,
+  updateAutomationMode,
+  updateCreationDraft,
+  appendInteractionMessage,
+  appendInteractionEvent,
+  BookSessionSchema,
+  GlobalSessionSchema,
+  type BookSession,
+  type GlobalSession,
+  createBookSession,
+  appendBookSessionMessage,
+} from "./interaction/session.js";
+export {
+  resolveProjectSessionPath,
+  createProjectSession,
+  loadProjectSession,
+  persistProjectSession,
+  resolveSessionActiveBook,
+  loadGlobalSession,
+  persistGlobalSession,
+} from "./interaction/project-session-store.js";
+export { loadBookSession, persistBookSession, listBookSessions, findOrCreateBookSession } from "./interaction/book-session-store.js";
+export { routeInteractionRequest } from "./interaction/request-router.js";
+export {
+  routeNaturalLanguageIntent,
+  type NaturalLanguageRoutingContext,
+} from "./interaction/nl-router.js";
+export {
+  processProjectInteractionInput,
+  processProjectInteractionRequest,
+} from "./interaction/project-control.js";
+export { createInteractionToolsFromDeps } from "./interaction/project-tools.js";
+export { buildExportArtifact, writeExportArtifact } from "./interaction/export-artifact.js";
+export {
+  normalizeTruthFileName,
+  classifyTruthAuthority,
+  type TruthAuthority,
+} from "./interaction/truth-authority.js";
+export {
+  executeEditTransaction,
+  planEditTransaction,
+  type EditRequest,
+  type EditExecutionDeps,
+  type ExecutedEditTransaction,
+  type PlannedEditTransaction,
+} from "./interaction/edit-controller.js";
+export {
+  runInteractionRequest,
+  type InteractionRuntimeTools,
+  type InteractionRuntimeResult,
+} from "./interaction/runtime.js";
+export {
+  parseDraftDirectives,
+  createDirectiveStreamFilter,
+  type ParsedDraftResponse,
+} from "./interaction/draft-directive-parser.js";
+
+// Agent (pi-agent integration)
+export * from "./agent/index.js";
 
 // LLM
 export { createLLMClient, chatCompletion, chatWithTools, createStreamMonitor, PartialResponseError, type LLMClient, type LLMResponse, type LLMMessage, type ToolDefinition, type ToolCall, type AgentMessage, type ChatWithToolsResult, type StreamProgress, type OnStreamProgress } from "./llm/provider.js";
+export {
+  SERVICE_PRESETS,
+  SERVICE_TO_PI_PROVIDER,
+  resolveServicePreset,
+  resolveServiceProviderFamily,
+  resolveServicePiProvider,
+  resolveServiceModelsBaseUrl,
+  guessServiceFromBaseUrl,
+  listModelsForService,
+  listServicesWithModelCount,
+  type ServicePreset,
+  type ModelInfo,
+} from "./llm/service-presets.js";
+export { resolveServiceModel, type ResolvedModel } from "./llm/service-resolver.js";
+export { loadSecrets, saveSecrets, getServiceApiKey, type SecretsFile } from "./llm/secrets.js";
+export { migrateConfig, type MigrationResult } from "./llm/config-migration.js";
 
 // Agents
 export { BaseAgent, type AgentContext } from "./agents/base.js";

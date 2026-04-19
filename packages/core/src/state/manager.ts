@@ -5,6 +5,9 @@ import type { ChapterMeta } from "../models/chapter.js";
 import { bootstrapStructuredStateFromMarkdown, resolveDurableStoryProgress } from "./state-bootstrap.js";
 
 export class StateManager {
+  /** Books actively being written by this process — used for same-process stale lock detection. */
+  private readonly activeWrites = new Set<string>();
+
   constructor(private readonly projectRoot: string) {}
 
   private static defaultAuthorIntent(language: "zh" | "en"): string {
@@ -106,7 +109,10 @@ export class StateManager {
       if (code === "EEXIST") {
         const lockData = await readFile(lockPath, "utf-8").catch(() => "pid:unknown ts:unknown");
         const lockPid = this.extractLockPid(lockData);
-        if (lockPid !== undefined && !this.isProcessAlive(lockPid)) {
+        const isStale =
+          (lockPid !== undefined && !this.isProcessAlive(lockPid)) ||
+          (lockPid === process.pid && !this.activeWrites.has(bookId));
+        if (isStale) {
           await unlink(lockPath).catch(() => undefined);
           return this.acquireBookLock(bookId);
         }
@@ -117,7 +123,9 @@ export class StateManager {
       }
       throw e;
     }
+    this.activeWrites.add(bookId);
     return async () => {
+      this.activeWrites.delete(bookId);
       try {
         await unlink(lockPath);
       } catch {
@@ -394,11 +402,12 @@ export class StateManager {
 
       await Promise.all(
         optionalFiles.map(async (f) => {
+          const targetPath = join(storyDir, f);
           try {
             const content = await readFile(join(snapshotDir, f), "utf-8");
-            await writeFile(join(storyDir, f), content, "utf-8");
+            await writeFile(targetPath, content, "utf-8");
           } catch {
-            // Optional file missing — skip
+            await rm(targetPath, { force: true });
           }
         }),
       );
