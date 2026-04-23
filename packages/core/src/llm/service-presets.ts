@@ -133,55 +133,101 @@ export interface ModelInfo {
   readonly name: string;
   readonly reasoning: boolean;
   readonly contextWindow: number;
+  /** 模型输出上限（来自 providers bank 或 live /models 补充） */
+  readonly maxOutput?: number;
+  /** 能力标签（来自 providers bank 的 InkosModel.abilities） */
+  readonly abilities?: {
+    readonly reasoning?: boolean;
+    readonly vision?: boolean;
+    readonly functionCall?: boolean;
+    readonly search?: boolean;
+    readonly structuredOutput?: boolean;
+  };
 }
 
-export async function listModelsForService(service: string, apiKey?: string): Promise<ReadonlyArray<ModelInfo>> {
+function toModelInfo(inkosModel: { id: string; displayName?: string; maxOutput: number; contextWindowTokens: number; abilities?: Record<string, boolean> }): ModelInfo {
+  return {
+    id: inkosModel.id,
+    name: inkosModel.displayName ?? inkosModel.id,
+    reasoning: inkosModel.abilities?.reasoning === true,
+    contextWindow: inkosModel.contextWindowTokens,
+    maxOutput: inkosModel.maxOutput,
+    ...(inkosModel.abilities ? { abilities: inkosModel.abilities } : {}),
+  };
+}
+
+/**
+ * listModelsForService（B8 升级版）：
+ * - 先试 live /models probe（如果 baseUrl + apiKey 具备）
+ *   - 每个 live id 过 lookupModel 补元数据
+ * - probe 失败或无 apiKey：fallback 到 provider.models（inkos bank）
+ * - INKOS_LLM_MODEL env 补丁：保证这个 id 在列表里（用户手填的冷门模型）
+ *
+ * custom / newapi / higress 等 baseUrl 空的 gateway provider：
+ *   必须传 liveBaseUrl 才能做 probe；否则只依赖 env + bank。
+ */
+export async function listModelsForService(
+  service: string,
+  apiKey?: string,
+  liveBaseUrl?: string,
+): Promise<ReadonlyArray<ModelInfo>> {
+  const provider = getProvider(service);
   const preset = SERVICE_PRESETS[service];
-  if (!preset || service === "custom") return [];
+  if (!provider && !preset) return [];
 
-  if (preset.knownModels && preset.knownModels.length > 0) {
-    return preset.knownModels.map((id) => ({ id, name: id, reasoning: false, contextWindow: 0 }));
-  }
+  const envPatch = process.env.INKOS_LLM_MODEL;
+  const byId = new Map<string, ModelInfo>();
 
-  const modelsBaseUrl = resolveServiceModelsBaseUrl(service);
-  if (apiKey && modelsBaseUrl) {
+  // 1) 先试 live /models probe
+  const probeBaseUrl = liveBaseUrl || provider?.modelsBaseUrl || provider?.baseUrl || resolveServiceModelsBaseUrl(service);
+  if (apiKey && probeBaseUrl) {
     try {
-      const modelsUrl = modelsBaseUrl.replace(/\/$/, "") + "/models";
+      const modelsUrl = probeBaseUrl.replace(/\/$/, "") + "/models";
       const res = await fetch(modelsUrl, {
         headers: { Authorization: `Bearer ${apiKey}` },
         signal: AbortSignal.timeout(10_000),
       });
       if (res.ok) {
-        const json = await res.json() as { data?: Array<{ id: string; owned_by?: string }> };
-        if (json.data && json.data.length > 0) {
-          return json.data.map((m) => ({
-            id: m.id,
-            name: m.id,
-            reasoning: false,
-            contextWindow: 0,
-          }));
+        const json = (await res.json()) as { data?: Array<{ id: string; owned_by?: string }> };
+        if (json.data) {
+          const { lookupModel } = await import("./providers/lookup.js");
+          for (const m of json.data) {
+            const card = lookupModel(service, m.id);
+            if (card) {
+              byId.set(m.id, toModelInfo(card));
+            } else {
+              byId.set(m.id, { id: m.id, name: m.id, reasoning: false, contextWindow: 0 });
+            }
+          }
         }
       }
     } catch {
-      // /models unavailable, fall through
+      // live 不可用，下面 fallback
     }
   }
 
-  const piProvider = SERVICE_TO_PI_PROVIDER[service];
-  if (!piProvider) return [];
-
-  try {
-    const { getModels } = await import("@mariozechner/pi-ai");
-    const models = getModels(piProvider as any);
-    return models.map((m: any) => ({
-      id: m.id,
-      name: m.name,
-      reasoning: m.reasoning ?? false,
-      contextWindow: m.contextWindow ?? 0,
-    }));
-  } catch {
-    return [];
+  // 2) provider bank fallback / 补充（保证 probe 之外的 model 也在列表里）
+  if (provider) {
+    for (const m of provider.models) {
+      if (m.enabled === false) continue;
+      if (byId.has(m.id)) continue;  // live 已经提供了
+      byId.set(m.id, toModelInfo(m));
+    }
   }
+
+  // 3) 旧 knownModels fallback（兼容 A 组过渡期的 preset.knownModels）
+  if (byId.size === 0 && preset?.knownModels) {
+    for (const id of preset.knownModels) {
+      byId.set(id, { id, name: id, reasoning: false, contextWindow: 0 });
+    }
+  }
+
+  // 4) env 补丁
+  if (envPatch && !byId.has(envPatch)) {
+    byId.set(envPatch, { id: envPatch, name: envPatch, reasoning: false, contextWindow: 0 });
+  }
+
+  return Array.from(byId.values());
 }
 
 export async function listServicesWithModelCount(): Promise<ReadonlyArray<{ service: string; label: string; modelCount: number }>> {
