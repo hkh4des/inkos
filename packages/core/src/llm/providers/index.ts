@@ -23,6 +23,14 @@ import { TENCENTCLOUD } from "./tencentcloud.js";
 import { XIAOMI_MIMO } from "./xiaomimimo.js";
 import { LONGCAT } from "./longcat.js";
 import { INTERNLM } from "./internlm.js";
+// B3
+import { MODELSCOPE } from "./modelscope.js";
+import { GITEEAI } from "./giteeai.js";
+import { QINIU } from "./qiniu.js";
+import { HIGRESS } from "./higress.js";
+import { INFINIAI } from "./infiniai.js";
+import { ZEROONE } from "./zeroone.js";
+import { AI360 } from "./ai360.js";
 
 export type { InkosProvider, InkosModel, ApiProtocol } from "./types.js";
 
@@ -34,6 +42,7 @@ const ALL_PROVIDERS: readonly InkosProvider[] = [
   ANTHROPIC, OPENAI, GOOGLE, DEEPSEEK, QWEN, MINIMAX,
   MOONSHOT, ZHIPU, SILICONCLOUD, PPIO, BAILIAN, VOLCENGINE, HUNYUAN, BAICHUAN, STEPFUN, WENXIN,
   SPARK, SENSENOVA, TENCENTCLOUD, XIAOMI_MIMO, LONGCAT, INTERNLM,
+  MODELSCOPE, GITEEAI, QINIU, HIGRESS, INFINIAI, ZEROONE, AI360,
 ];
 
 const PROVIDERS_BY_ID: Map<string, InkosProvider> = new Map(

@@ -3,11 +3,17 @@ import { getAllProviders, getProvider } from "../llm/providers/index.js";
 
 describe("providers structural integrity", () => {
   it("每个 provider 必填字段都存在", () => {
+    const gatewayProviders = new Set(["custom", "higress", "newapi"]);
     for (const p of getAllProviders()) {
       expect(p.id).toBeTruthy();
       expect(p.label).toBeTruthy();
       expect(p.api).toMatch(/^(openai-completions|openai-responses|anthropic-messages)$/);
-      expect(p.baseUrl).toBeTruthy();
+      // gateway/anchor provider 允许 baseUrl 为空（由用户填）
+      if (gatewayProviders.has(p.id)) {
+        expect(typeof p.baseUrl).toBe("string");
+      } else {
+        expect(p.baseUrl, `provider=${p.id}`).toBeTruthy();
+      }
     }
   });
 
@@ -68,5 +74,16 @@ describe("providers structural integrity", () => {
     for (const id of ["spark", "sensenova", "tencentcloud", "xiaomimimo", "longcat", "internlm"]) {
       expect(ids).toContain(id);
     }
+  });
+
+  it("B3：中国原厂批次 3 全部收录（7 个）", () => {
+    const ids = getAllProviders().map((p) => p.id);
+    for (const id of ["modelscope", "giteeai", "qiniu", "higress", "infiniai", "zeroone", "ai360"]) {
+      expect(ids).toContain(id);
+    }
+  });
+
+  it("B3：higress baseUrl 为空（gateway 占位）", () => {
+    expect(getProvider("higress")?.baseUrl).toBe("");
   });
 });
