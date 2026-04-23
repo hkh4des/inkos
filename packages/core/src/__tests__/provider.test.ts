@@ -590,3 +590,61 @@ describe("createLLMClient maxTokensCap regression", () => {
     expect(opts.maxTokens).toBe(4096);
   });
 });
+
+describe("createLLMClient with providers lookup", () => {
+  it("anthropic + claude-sonnet-4-6 拿到 modelCard 的 maxOutput (64000)，不是 8192 fallback", async () => {
+    const { createLLMClient } = await import("../llm/provider.js");
+    const { LLMConfigSchema } = await import("../models/project.js");
+    const client = createLLMClient(LLMConfigSchema.parse({
+      provider: "anthropic",
+      service: "anthropic",
+      model: "claude-sonnet-4-6",
+      apiKey: "test",
+      baseUrl: "https://api.anthropic.com",
+    }));
+    expect(client.defaults.maxTokens).toBe(64_000);
+    expect(client._piModel?.maxTokens).toBe(64_000);
+    expect(client._piModel?.contextWindow).toBe(1_000_000);
+  });
+
+  it("custom service + gpt-4o 靠 Layer 2 全局扫命中 openai provider", async () => {
+    const { createLLMClient } = await import("../llm/provider.js");
+    const { LLMConfigSchema } = await import("../models/project.js");
+    const client = createLLMClient(LLMConfigSchema.parse({
+      provider: "openai",
+      service: "custom",
+      model: "gpt-4o",
+      apiKey: "test",
+      baseUrl: "https://middleman.example/v1",
+    }));
+    // lobe 数据里 gpt-4o maxOutput=4096
+    expect(client.defaults.maxTokens).toBe(4096);
+  });
+
+  it("未知 model 走保守默认 8192", async () => {
+    const { createLLMClient } = await import("../llm/provider.js");
+    const { LLMConfigSchema } = await import("../models/project.js");
+    const client = createLLMClient(LLMConfigSchema.parse({
+      provider: "openai",
+      service: "custom",
+      model: "my-private-xyz-model-does-not-exist",
+      apiKey: "test",
+      baseUrl: "https://middleman.example/v1",
+    }));
+    expect(client.defaults.maxTokens).toBe(8192);
+  });
+
+  it("config.maxTokens 命中 modelCard 后被覆盖（用户填 4000 还是用 modelCard 的 64000）", async () => {
+    const { createLLMClient } = await import("../llm/provider.js");
+    const { LLMConfigSchema } = await import("../models/project.js");
+    const client = createLLMClient(LLMConfigSchema.parse({
+      provider: "anthropic",
+      service: "anthropic",
+      model: "claude-sonnet-4-6",
+      apiKey: "test",
+      baseUrl: "https://api.anthropic.com",
+      maxTokens: 4000,
+    }));
+    expect(client.defaults.maxTokens).toBe(64_000);
+  });
+});
