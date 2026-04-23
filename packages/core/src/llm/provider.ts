@@ -17,7 +17,6 @@ import type {
 import { resolveServicePreset } from "./service-presets.js";
 import { getEndpoint } from "./providers/index.js";
 import { lookupModel } from "./providers/lookup.js";
-import { resolvePiAiProvider } from "./providers/provider-to-pi-ai.js";
 
 
 // === Streaming Monitor Types ===
@@ -158,9 +157,14 @@ export function createLLMClient(config: LLMConfig): LLMClient {
   const extraHeaders = config.headers ?? parseEnvHeaders();
 
   const provider = config.provider === "anthropic" ? "anthropic" : "openai";
-  const piProvider = inkosProvider
-    ? resolvePiAiProvider(inkosProvider)
-    : provider;
+  // pi-ai provider 字段：大多数情况 pi-ai 会按 baseUrl 自动嗅探（openrouter.ai / api.z.ai /
+  // api.x.ai / deepseek.com / anthropic.com 等）。这里只列 pi-ai 嗅探不到、需要显式指定的少数情况。
+  let piProvider: string;
+  if (inkosProvider?.id === "zhipu") piProvider = "zai";
+  else if (inkosProvider?.id === "openrouter") piProvider = "openrouter";
+  else if (inkosProvider?.id === "githubCopilot") piProvider = "githubCopilot";
+  else if (inkosProvider?.api === "anthropic-messages") piProvider = "anthropic";
+  else piProvider = provider;
 
   const piModel: PiModel<PiApi> = {
     id: modelCard?.deploymentName ?? config.model,
