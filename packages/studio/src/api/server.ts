@@ -360,6 +360,7 @@ function buildModelCandidates(args: {
   configModel?: string;
   envModel?: string | null;
   discoveredModels: Array<{ id: string; name: string }>;
+  includeGenericFallbacks?: boolean;
 }): string[] {
   const seen = new Set<string>();
   const candidates: string[] = [];
@@ -375,6 +376,7 @@ function buildModelCandidates(args: {
   push(args.configModel);
   push(args.envModel ?? undefined);
   for (const model of args.discoveredModels) push(model.id);
+  if (args.includeGenericFallbacks === false) return candidates;
   push("gpt-5.4");
   push("gpt-4o");
   push("claude-sonnet-4-6");
@@ -450,13 +452,24 @@ async function probeServiceCapabilities(args: {
   const preset = resolveServicePreset(baseService);
   const serviceFirstModel =
     endpoint?.checkModel
-    ?? endpoint?.models.find((model) => model.enabled !== false)?.id
-    ?? preset?.knownModels?.[0];
+    ?? preset?.knownModels?.[0]
+    ?? endpoint?.models.find((model) => model.enabled !== false)?.id;
+  const useEndpointCheckModel = !isCustomServiceId(args.service) && Boolean(endpoint?.checkModel);
+  const configService = typeof llm.service === "string" ? llm.service : undefined;
+  const configModel = !useEndpointCheckModel && configService === args.service
+    ? typeof llm.defaultModel === "string"
+      ? llm.defaultModel
+      : typeof llm.model === "string"
+        ? llm.model
+        : undefined
+    : undefined;
+  const useCustomFallbacks = isCustomServiceId(args.service);
   const modelCandidates = buildModelCandidates({
     preferredModel: args.preferredModel ?? serviceFirstModel,
-    configModel: typeof llm.defaultModel === "string" ? llm.defaultModel : typeof llm.model === "string" ? llm.model : undefined,
-    envModel,
-    discoveredModels,
+    configModel,
+    envModel: useCustomFallbacks ? envModel : undefined,
+    discoveredModels: useEndpointCheckModel ? [] : discoveredModels,
+    includeGenericFallbacks: useCustomFallbacks,
   });
 
   if (modelCandidates.length === 0) {

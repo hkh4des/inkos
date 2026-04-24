@@ -95,6 +95,7 @@ const endpointMocks = [
     label: id,
     group,
     ...(id === "google" ? { checkModel: "gemini-2.5-flash" } : {}),
+    ...(id === "minimax" ? { checkModel: "MiniMax-M2.7" } : {}),
     models: [
       { id: `${id}-model`, maxOutput: 4096, contextWindowTokens: 32768, enabled: true },
       { id: `${id}-disabled`, maxOutput: 4096, contextWindowTokens: 32768, enabled: false },
@@ -1167,6 +1168,50 @@ describe("createStudioServer daemon lifecycle", () => {
       expect.any(Array),
       expect.any(Object),
     );
+    expect(chatCompletionMock.mock.calls.map((call) => call[1])).not.toContain("MiniMax-M2.7");
+  });
+
+  it("does not fall back to the global default model when a bank endpoint probe fails", async () => {
+    await writeFile(join(root, "inkos.json"), JSON.stringify({
+      ...projectConfig,
+      llm: {
+        services: [
+          { service: "google", apiFormat: "chat", stream: false },
+        ],
+        defaultModel: "MiniMax-M2.7",
+      },
+    }, null, 2), "utf-8");
+
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: false,
+      status: 404,
+      text: async () => "Not Found",
+    });
+    vi.stubGlobal("fetch", fetchMock as typeof fetch);
+    createLLMClientMock.mockImplementation(((cfg: unknown) => cfg) as any);
+    chatCompletionMock.mockImplementation(async (_client: any, model: string) => {
+      throw new Error(`probe failed for ${model}`);
+    });
+
+    const { createStudioServer } = await import("./server.js");
+    const app = createStudioServer(cloneProjectConfig() as never, root);
+
+    const response = await app.request("http://localhost/api/v1/services/google/test", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        apiKey: "google-key",
+        apiFormat: "chat",
+        stream: false,
+      }),
+    });
+
+    expect(response.status).toBe(400);
+    await expect(response.json()).resolves.toMatchObject({
+      ok: false,
+      error: expect.stringContaining("gemini-2.5-flash"),
+    });
+    expect(new Set(chatCompletionMock.mock.calls.map((call) => call[1]))).toEqual(new Set(["gemini-2.5-flash"]));
   });
 
   it("uses the preset models baseUrl when listing Bailian models", async () => {
