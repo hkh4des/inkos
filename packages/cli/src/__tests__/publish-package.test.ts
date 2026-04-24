@@ -16,6 +16,19 @@ const sourceStudioPackageJsonPromise = readFile(resolve(studioDir, "package.json
   JSON.parse(raw),
 );
 
+function tarForceLocalArgs(): string[] {
+  if (process.platform !== "win32") return [];
+  try {
+    const version = execFileSync("tar", ["--version"], {
+      encoding: "utf-8",
+      stdio: ["ignore", "pipe", "ignore"],
+    });
+    return version.includes("GNU tar") ? ["--force-local"] : [];
+  } catch {
+    return [];
+  }
+}
+
 async function packPackage(packageDir: string, packDir: string) {
   const npmCmd = process.platform === "win32" ? "npm.cmd" : "npm";
   execFileSync(npmCmd, ["pack", "--pack-destination", packDir], {
@@ -35,7 +48,7 @@ async function packPackage(packageDir: string, packDir: string) {
 
 async function extractPackedPackageJson(packageDir: string, packDir: string) {
   const tarballPath = await packPackage(packageDir, packDir);
-  const tarArgs = process.platform === "win32" ? ["--force-local", "-xOf"] : ["-xOf"];
+  const tarArgs = [...tarForceLocalArgs(), "-xOf"];
   return execFileSync("tar", [...tarArgs, tarballPath, "package/package.json"], {
     cwd: workspaceRoot,
     encoding: "utf-8",
@@ -242,7 +255,7 @@ describe.sequential("publish packaging", () => {
 
     try {
       const tarballPath = await packPackage(studioDir, packDir);
-      const tarArgs = process.platform === "win32" ? ["--force-local", "-tf"] : ["-tf"];
+      const tarArgs = [...tarForceLocalArgs(), "-tf"];
       const archiveListing = execFileSync("tar", [...tarArgs, tarballPath], {
         cwd: workspaceRoot,
         encoding: "utf-8",

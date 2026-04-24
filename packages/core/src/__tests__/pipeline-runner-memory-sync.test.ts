@@ -187,7 +187,7 @@ describe("PipelineRunner structured-state memory sync", () => {
           temperature: 0.7,
           maxTokens: 4096,
           thinkingBudget: 0,
-          
+
         },
       } as ConstructorParameters<typeof PipelineRunner>[0]["client"],
       model: "test-model",
