@@ -445,9 +445,13 @@ async function probeServiceCapabilities(args: {
     };
   }
   const discoveredModels = modelsResponse.models;
-  // For services with knownModels, use their first model as top candidate — not the global default
+  // For bank services, probe with the service's own check model first — not the global default.
+  const endpoint = getAllEndpoints().find((ep) => ep.id === baseService);
   const preset = resolveServicePreset(baseService);
-  const serviceFirstModel = preset?.knownModels?.[0];
+  const serviceFirstModel =
+    endpoint?.checkModel
+    ?? endpoint?.models.find((model) => model.enabled !== false)?.id
+    ?? preset?.knownModels?.[0];
   const modelCandidates = buildModelCandidates({
     preferredModel: args.preferredModel ?? serviceFirstModel,
     configModel: typeof llm.defaultModel === "string" ? llm.defaultModel : typeof llm.model === "string" ? llm.model : undefined,
