@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { Agent } from "@mariozechner/pi-agent-core";
 import type { AgentEvent, AgentMessage } from "@mariozechner/pi-agent-core";
 import { streamSimple, getModel, getEnvApiKey } from "@mariozechner/pi-ai";
-import type { Model, Api, AssistantMessage, UserMessage } from "@mariozechner/pi-ai";
+import type { Model, Api, AssistantMessage, Message, ToolResultMessage, UserMessage } from "@mariozechner/pi-ai";
 import type { PipelineRunner } from "../pipeline/runner.js";
 import { buildAgentSystemPrompt } from "./agent-system-prompt.js";
 import {
@@ -23,6 +23,7 @@ import {
   readTranscriptEvents,
 } from "../interaction/session-transcript.js";
 import {
+  TOOL_RESULT_BRIDGE_TEXT,
   adaptRestoredAgentMessagesForModel,
   restoreAgentMessagesFromTranscript,
 } from "../interaction/session-transcript-restore.js";
@@ -58,6 +59,8 @@ export interface AgentSessionResult {
   responseText: string;
   /** Full raw Agent conversation history. */
   messages: AgentMessage[];
+  /** Upstream model error surfaced by pi-agent-core, if the final assistant turn failed. */
+  errorMessage?: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -72,7 +75,7 @@ export interface AgentSessionResult {
 interface CachedAgent {
   agent: Agent;
   bookId: string | null;
-  modelId: string | null;
+  modelIdentity: string;
   allowSystemFileRead: boolean;
   lastCommittedSeq: number;
   lastActive: number;
@@ -126,18 +129,20 @@ function resolveModel(spec: AgentSessionConfig["model"]): Model<Api> {
   return getModel(provider as any, modelId as any);
 }
 
-function modelIdFromSpec(spec: AgentSessionConfig["model"]): string | null {
-  if (!spec || typeof spec !== "object") return null;
-  if ("id" in spec && typeof spec.id === "string") return spec.id;
-  if ("modelId" in spec && typeof spec.modelId === "string") return spec.modelId;
-  return null;
-}
-
 function envFlagEnabled(value: string | undefined, defaultValue: boolean): boolean {
   if (value === undefined) return defaultValue;
   if (value === "1" || value.toLowerCase() === "true") return true;
   if (value === "0" || value.toLowerCase() === "false") return false;
   return defaultValue;
+}
+
+function agentModelIdentity(model: Model<Api>): string {
+  return [
+    model.api,
+    model.provider,
+    model.baseUrl ?? "",
+    model.id,
+  ].join("::");
 }
 
 async function latestCommittedSeq(projectRoot: string, sessionId: string): Promise<number> {
@@ -220,6 +225,102 @@ function extractTextFromAssistant(msg: AssistantMessage): string {
     .filter((c): c is { type: "text"; text: string } => c.type === "text")
     .map((c) => c.text)
     .join("");
+}
+
+function convertAgentMessagesForModel(messages: AgentMessage[], model: Model<Api>): Message[] {
+  const llmMessages = messages.filter((message): message is Message => {
+    if (!message || typeof message !== "object" || !("role" in message)) return false;
+    return message.role === "user" || message.role === "assistant" || message.role === "toolResult";
+  });
+
+  const candidate = model as { api?: unknown; baseUrl?: unknown };
+  const isGoogleOpenAICompatible = (
+    candidate.api === "openai-completions" &&
+    typeof candidate.baseUrl === "string" &&
+    candidate.baseUrl.includes("generativelanguage.googleapis.com")
+  );
+  if (!isGoogleOpenAICompatible) return llmMessages;
+
+  const converted: Message[] = [];
+  const pushToolResultsAsUser = (toolResults: ToolResultMessage[]) => {
+    const lines = toolResults.flatMap((result) => {
+      const content = result.content
+        .map((block) => block.type === "text" ? block.text : "[image]")
+        .filter(Boolean)
+        .join("\n")
+        .trim() || "(empty tool result)";
+      return [`- ${result.toolName} (${result.toolCallId}):`, content];
+    });
+    converted.push({
+      role: "user",
+      content: [
+        "[Tool results]",
+        ...lines,
+        "Use these tool results to answer the active user request. If a tool failed, explain the failure and choose the next useful action.",
+      ].join("\n"),
+      timestamp: toolResults.reduce(
+        (max, result) => Math.max(max, messageTimestamp(result as AgentMessage)),
+        0,
+      ) || Date.now(),
+    });
+  };
+
+  for (let i = 0; i < llmMessages.length; i++) {
+    const message = llmMessages[i];
+
+    if (message.role === "assistant") {
+      const textContent = message.content.filter(
+        (block): block is { type: "text"; text: string } =>
+          block.type === "text" && typeof block.text === "string" && block.text.trim().length > 0,
+      );
+      if (
+        textContent.length === 1 &&
+        message.content.length === 1 &&
+        textContent[0].text.trim() === TOOL_RESULT_BRIDGE_TEXT
+      ) {
+        continue;
+      }
+
+      const toolCallIds = new Set<string>();
+      for (const block of message.content) {
+        if (block.type === "toolCall" && typeof block.id === "string" && block.id.length > 0) {
+          toolCallIds.add(block.id);
+        }
+      }
+      if (toolCallIds.size === 0) {
+        converted.push(message);
+        continue;
+      }
+
+      if (textContent.length > 0) {
+        converted.push({ ...message, content: textContent });
+      }
+
+      const toolResults: ToolResultMessage[] = [];
+      let nextIndex = i + 1;
+      while (nextIndex < llmMessages.length) {
+        const next = llmMessages[nextIndex];
+        if (next.role !== "toolResult" || !toolCallIds.has(next.toolCallId)) break;
+        toolResults.push(next);
+        nextIndex += 1;
+      }
+
+      if (toolResults.length > 0) {
+        pushToolResultsAsUser(toolResults);
+        i = nextIndex - 1;
+      }
+      continue;
+    }
+
+    if (message.role === "toolResult") {
+      pushToolResultsAsUser([message]);
+      continue;
+    }
+
+    converted.push(message);
+  }
+
+  return converted;
 }
 
 /**
@@ -319,23 +420,19 @@ export async function runAgentSession(
   // skipped) and we don't want that to (a) throw in path.join or (b) trigger
   // a spurious cache eviction because `null !== undefined`.
   const bookId: string | null = config.bookId ?? null;
-  const requestedModelId = modelIdFromSpec(config.model);
+  const model = resolveModel(config.model);
+  const requestedModelIdentity = agentModelIdentity(model);
   const allowSystemFileRead = config.allowSystemFileRead ?? envFlagEnabled(process.env.INKOS_AGENT_ALLOW_SYSTEM_READ, true);
 
   // ----- Resolve or create Agent -----
   let cached = agentCache.get(sessionId);
 
   if (cached) {
-    // Evict and rebuild if model OR bookId changed. Both are captured into the
-    // Agent at construction time (model via initialState, bookId via closures
-    // in systemPrompt / tools / transformContext), so a mismatch means the
-    // cached Agent would keep using stale context — including reading truth
-    // files from the wrong book's story/ directory.
-    const modelChanged = !!(
-      cached.modelId &&
-      requestedModelId &&
-      cached.modelId !== requestedModelId
-    );
+    // Evict and rebuild if model protocol identity OR bookId changed. Both are
+    // captured into the Agent at construction time (model via initialState,
+    // bookId via closures in systemPrompt / tools / transformContext), so a
+    // mismatch means the cached Agent would keep using stale context.
+    const modelChanged = cached.modelIdentity !== requestedModelIdentity;
     const bookChanged = cached.bookId !== bookId;
     const readPermissionChanged = cached.allowSystemFileRead !== allowSystemFileRead;
 
@@ -346,7 +443,6 @@ export async function runAgentSession(
   }
 
   if (!cached) {
-    const model = resolveModel(config.model);
     const restoredMessages = adaptRestoredAgentMessagesForModel(
       await restoreAgentMessagesFromTranscript(projectRoot, sessionId),
       model,
@@ -374,6 +470,7 @@ export async function runAgentSession(
         messages: initialAgentMessages,
       },
       transformContext: createBookContextTransform(bookId, projectRoot),
+      convertToLlm: (messages) => convertAgentMessagesForModel(messages, model),
       streamFn: streamSimple,
       getApiKey: (provider: string) => {
         if (config.apiKey) return config.apiKey;
@@ -384,7 +481,7 @@ export async function runAgentSession(
     cached = {
       agent,
       bookId,
-      modelId: model.id ?? requestedModelId,
+      modelIdentity: requestedModelIdentity,
       allowSystemFileRead,
       lastCommittedSeq: await latestCommittedSeq(projectRoot, sessionId),
       lastActive: Date.now(),
@@ -483,23 +580,26 @@ export async function runAgentSession(
 
   // ----- Extract result -----
   const allMessages = agent.state.messages;
-  const responseText = extractResponseText(allMessages);
-
-  return { responseText, messages: allMessages.slice() };
-}
-
-/**
- * Walk backward through messages to find the last assistant message and
- * extract its text content.
- */
-function extractResponseText(messages: AgentMessage[]): string {
-  for (let i = messages.length - 1; i >= 0; i--) {
-    const msg = messages[i];
+  let finalAssistant: AssistantMessage | undefined;
+  for (let i = allMessages.length - 1; i >= 0; i--) {
+    const msg = allMessages[i];
     if (msg && typeof msg === "object" && "role" in msg && (msg as any).role === "assistant") {
-      return extractTextFromAssistant(msg as AssistantMessage);
+      finalAssistant = msg as AssistantMessage;
+      break;
     }
   }
-  return "";
+  const responseText = finalAssistant ? extractTextFromAssistant(finalAssistant) : "";
+  const errorMessage = finalAssistant &&
+    (finalAssistant.stopReason === "error" || finalAssistant.stopReason === "aborted") &&
+    finalAssistant.errorMessage
+      ? finalAssistant.errorMessage
+      : undefined;
+
+  return {
+    responseText,
+    messages: allMessages.slice(),
+    ...(errorMessage ? { errorMessage } : {}),
+  };
 }
 
 // ---------------------------------------------------------------------------

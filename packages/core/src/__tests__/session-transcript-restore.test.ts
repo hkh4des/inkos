@@ -411,6 +411,211 @@ describe("session transcript restore", () => {
     expect((adapted[0] as any).content).toEqual(messages[0].content);
   });
 
+  it("同模型恢复时保留 reasoning_content 和原生 toolResult 连续性", () => {
+    const messages = [
+      {
+        role: "assistant",
+        content: [
+          { type: "thinking", thinking: "Need a file", thinkingSignature: "reasoning_content" },
+          { type: "toolCall", id: "tool-1", name: "read", arguments: { path: "story.md" } },
+        ],
+        api: "openai-completions",
+        provider: "openai",
+        model: "deepseek-v4-pro",
+        usage,
+        stopReason: "toolUse",
+        timestamp: 1,
+      },
+      {
+        role: "toolResult",
+        toolCallId: "tool-1",
+        toolName: "read",
+        content: [{ type: "text", text: "资料" }],
+        isError: false,
+        timestamp: 2,
+      },
+    ] as any;
+
+    const adapted = adaptRestoredAgentMessagesForModel(messages, {
+      api: "openai-completions",
+      provider: "openai",
+      id: "deepseek-v4-pro",
+    });
+
+    expect(adapted).toEqual(messages);
+  });
+
+  it("跨模型恢复时把原生工具回合降级为 user 文本", () => {
+    const messages = [
+      {
+        role: "assistant",
+        content: [
+          { type: "toolCall", id: "tool-1", name: "read", arguments: { path: "story.md" } },
+        ],
+        api: "openai-completions",
+        provider: "openai",
+        model: "gemini-pro-latest",
+        usage,
+        stopReason: "toolUse",
+        timestamp: 1,
+      },
+      {
+        role: "toolResult",
+        toolCallId: "tool-1",
+        toolName: "read",
+        content: [{ type: "text", text: "资料" }],
+        isError: false,
+        timestamp: 2,
+      },
+      {
+        role: "assistant",
+        content: [{ type: "text", text: "I have processed the tool results." }],
+        api: "openai-completions",
+        provider: "inkos",
+        model: "synthetic-tool-result-bridge",
+        usage,
+        stopReason: "stop",
+        timestamp: 3,
+      },
+    ] as any;
+
+    const adapted = adaptRestoredAgentMessagesForModel(messages, {
+      api: "openai-completions",
+      provider: "openai",
+      id: "deepseek-v4-pro",
+    });
+
+    expect(JSON.stringify(adapted)).not.toContain("\"toolCall\"");
+    expect(adapted.some((message: any) => message.role === "toolResult")).toBe(false);
+    expect(adapted).toEqual([
+      expect.objectContaining({
+        role: "user",
+        content: expect.stringContaining("[Tool results]"),
+      }),
+    ]);
+    expect(JSON.stringify(adapted)).toContain("read");
+    expect(JSON.stringify(adapted)).toContain("tool-1");
+    expect(JSON.stringify(adapted)).toContain("资料");
+    expect(JSON.stringify(adapted)).not.toContain("I have processed the tool results.");
+  });
+
+  it("native Google 同协议恢复时保留 thinking signature 和原生工具回合", () => {
+    const messages = [
+      {
+        role: "assistant",
+        content: [
+          { type: "thinking", thinking: "plan", thinkingSignature: "google-signature" },
+          { type: "toolCall", id: "tool-1", name: "ls", arguments: { subdir: "story/roles" } },
+        ],
+        api: "google-generative-ai",
+        provider: "google",
+        model: "gemini-pro-latest",
+        usage,
+        stopReason: "toolUse",
+        timestamp: 1,
+      },
+      {
+        role: "toolResult",
+        toolCallId: "tool-1",
+        toolName: "ls",
+        content: [{ type: "text", text: "主要角色/\n次要角色/" }],
+        isError: false,
+        timestamp: 2,
+      },
+    ] as any;
+
+    const adapted = adaptRestoredAgentMessagesForModel(messages, {
+      api: "google-generative-ai",
+      provider: "google",
+      id: "gemini-pro-latest",
+    });
+
+    expect(adapted).toEqual(messages);
+    expect(JSON.stringify(adapted)).toContain("google-signature");
+  });
+
+  it("切到 native Google 时把旧 OpenAI-compatible Gemini 工具回合文本化", () => {
+    const messages = [
+      {
+        role: "assistant",
+        content: [{ type: "toolCall", id: "tool-1", name: "ls", arguments: { subdir: "story/roles" } }],
+        api: "openai-completions",
+        provider: "openai",
+        model: "gemini-pro-latest",
+        usage,
+        stopReason: "toolUse",
+        timestamp: 1,
+      },
+      {
+        role: "toolResult",
+        toolCallId: "tool-1",
+        toolName: "ls",
+        content: [{ type: "text", text: "主要角色/" }],
+        isError: false,
+        timestamp: 2,
+      },
+    ] as any;
+
+    const adapted = adaptRestoredAgentMessagesForModel(messages, {
+      api: "google-generative-ai",
+      provider: "google",
+      id: "gemini-pro-latest",
+    });
+
+    const body = JSON.stringify(adapted);
+    expect(body).not.toContain("\"toolCall\"");
+    expect(adapted.some((message: any) => message.role === "toolResult")).toBe(false);
+    expect(adapted).toEqual([
+      expect.objectContaining({
+        role: "user",
+        content: expect.stringContaining("[Tool results]"),
+      }),
+    ]);
+    expect(body).toContain("ls");
+    expect(body).toContain("主要角色");
+  });
+
+  it("切到 native Google 时丢弃 DeepSeek reasoning_content 并文本化工具结果", () => {
+    const messages = [
+      {
+        role: "assistant",
+        content: [
+          { type: "thinking", thinking: "deepseek reasoning", thinkingSignature: "reasoning_content" },
+          { type: "text", text: "先看角色。" },
+          { type: "toolCall", id: "tool-1", name: "read", arguments: { path: "story/roles/林默.md" } },
+        ],
+        api: "openai-completions",
+        provider: "openai",
+        model: "deepseek-v4-pro",
+        usage,
+        stopReason: "toolUse",
+        timestamp: 1,
+      },
+      {
+        role: "toolResult",
+        toolCallId: "tool-1",
+        toolName: "read",
+        content: [{ type: "text", text: "林默资料" }],
+        isError: false,
+        timestamp: 2,
+      },
+    ] as any;
+
+    const adapted = adaptRestoredAgentMessagesForModel(messages, {
+      api: "google-generative-ai",
+      provider: "google",
+      id: "gemini-pro-latest",
+    });
+
+    const body = JSON.stringify(adapted);
+    expect(body).not.toContain("reasoning_content");
+    expect(body).not.toContain("deepseek reasoning");
+    expect(body).not.toContain("\"toolCall\"");
+    expect(body).toContain("先看角色。");
+    expect(body).toContain("[Tool results]");
+    expect(body).toContain("林默资料");
+  });
+
   it("派生 BookSession 时跳过没有正文的 assistant tool-use message", async () => {
     await appendTranscriptEvent(projectRoot, {
       type: "session_created",

@@ -73,7 +73,19 @@ vi.mock("@mariozechner/pi-ai", async () => {
     const timestamp = Date.now();
     const message = last?.role === "toolResult"
       ? assistant([{ type: "text", text: "ok" }], timestamp)
-      : prompt === "think"
+      : prompt === "model error"
+        ? {
+            role: "assistant",
+            content: [],
+            api: "anthropic-messages",
+            provider: "anthropic",
+            model: "fake",
+            usage: EMPTY_USAGE,
+            stopReason: "error",
+            errorMessage: "400 status code (no body)",
+            timestamp,
+          }
+        : prompt === "think"
         ? assistant([
             { type: "thinking", thinking: "raw thought", thinkingSignature: "sig-1" },
             { type: "text", text: "ok" },
@@ -117,7 +129,7 @@ vi.mock("@mariozechner/pi-ai", async () => {
 });
 
 import { runAgentSession, evictAgentCache } from "../agent/agent-session.js";
-import { readTranscriptEvents } from "../interaction/session-transcript.js";
+import { appendTranscriptEvent, readTranscriptEvents } from "../interaction/session-transcript.js";
 
 describe("runAgentSession cache — bookId switch", () => {
   let projectRoot: string;
@@ -219,6 +231,55 @@ describe("runAgentSession cache — bookId switch", () => {
     expect(agentInstances).toHaveLength(1);
   });
 
+  it("rebuilds Agent when model id is unchanged but API protocol changes", async () => {
+    const pipeline = {} as any;
+    const legacyGoogle = {
+      provider: "openai",
+      id: "gemini-pro-latest",
+      api: "openai-completions",
+      baseUrl: "https://generativelanguage.googleapis.com/v1beta/openai",
+      input: ["text"],
+    } as any;
+    const nativeGoogle = {
+      provider: "google",
+      id: "gemini-pro-latest",
+      api: "google-generative-ai",
+      baseUrl: "https://generativelanguage.googleapis.com/v1beta",
+      input: ["text"],
+    } as any;
+
+    await runAgentSession(
+      { sessionId: "s1", bookId: "book-a", language: "zh", pipeline, projectRoot, model: legacyGoogle },
+      "hi",
+    );
+    await runAgentSession(
+      { sessionId: "s1", bookId: "book-a", language: "zh", pipeline, projectRoot, model: nativeGoogle },
+      "hi2",
+    );
+
+    expect(agentInstances).toHaveLength(2);
+    expect(streamCalls.at(-1)?.model.api).toBe("google-generative-ai");
+    expect(streamCalls.at(-1)?.model.provider).toBe("google");
+  });
+
+  it("rebuilds Agent when model baseUrl changes", async () => {
+    const pipeline = {} as any;
+    const first = { provider: "openai", id: "same-model", api: "openai-completions", baseUrl: "https://one.example/v1", input: ["text"] } as any;
+    const second = { provider: "openai", id: "same-model", api: "openai-completions", baseUrl: "https://two.example/v1", input: ["text"] } as any;
+
+    await runAgentSession(
+      { sessionId: "s1", bookId: "book-a", language: "zh", pipeline, projectRoot, model: first },
+      "hi",
+    );
+    await runAgentSession(
+      { sessionId: "s1", bookId: "book-a", language: "zh", pipeline, projectRoot, model: second },
+      "hi2",
+    );
+
+    expect(agentInstances).toHaveLength(2);
+    expect(streamCalls.at(-1)?.model.baseUrl).toBe("https://two.example/v1");
+  });
+
   it("enables system file read by default for the session read tool", async () => {
     const model = { provider: "x", id: "y", api: "anthropic-messages" } as any;
     const pipeline = {} as any;
@@ -297,7 +358,7 @@ describe("runAgentSession cache — bookId switch", () => {
   });
 
   it("恢复 transcript 中的 toolResult message", async () => {
-    const model = { provider: "x", id: "y", api: "anthropic-messages" } as any;
+    const model = { provider: "anthropic", id: "fake", api: "anthropic-messages" } as any;
     const pipeline = {} as any;
 
     await runAgentSession(
@@ -326,5 +387,228 @@ describe("runAgentSession cache — bookId switch", () => {
       (event: any) => event.toolCallId === "tool-1" && event.role === "toolResult",
     ) as any;
     expect(toolResult.sourceToolAssistantUuid).toBe(toolAssistant.uuid);
+  });
+
+  it("Gemini OpenAI-compatible 模型不向 LLM replay 原生 toolCall/toolResult 历史", async () => {
+    const model = {
+      provider: "google",
+      id: "gemini-pro-latest",
+      api: "openai-completions",
+      baseUrl: "https://generativelanguage.googleapis.com/v1beta/openai",
+      input: ["text"],
+    } as any;
+    const pipeline = {} as any;
+
+    await runAgentSession(
+      { sessionId: "s1", bookId: "book-a", language: "zh", pipeline, projectRoot, model },
+      "use tool",
+    );
+
+    const lastContextMessages = streamCalls.at(-1)?.context.messages ?? [];
+    const body = JSON.stringify(lastContextMessages);
+
+    expect(lastContextMessages.some((message: any) => message.role === "toolResult")).toBe(false);
+    expect(body).not.toContain("\"toolCall\"");
+    expect(lastContextMessages).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          role: "user",
+          content: expect.stringContaining("[Tool results]"),
+        }),
+      ]),
+    );
+    expect(body).toContain("read");
+    expect(body).toContain("tool-1");
+    expect(body).toContain("书A 的真相");
+  });
+
+  it("Gemini OpenAI-compatible 上下文过滤恢复时补出的 toolResult bridge", async () => {
+    const model = {
+      provider: "google",
+      id: "gemini-pro-latest",
+      api: "openai-completions",
+      baseUrl: "https://generativelanguage.googleapis.com/v1beta/openai",
+      input: ["text"],
+    } as any;
+    const pipeline = {} as any;
+
+    await appendTranscriptEvent(projectRoot, {
+      type: "request_started",
+      version: 1,
+      sessionId: "s1",
+      requestId: "r1",
+      seq: 1,
+      timestamp: 1,
+      input: "use tool",
+    });
+    await appendTranscriptEvent(projectRoot, {
+      type: "message",
+      version: 1,
+      sessionId: "s1",
+      requestId: "r1",
+      uuid: "u1",
+      parentUuid: null,
+      seq: 2,
+      role: "user",
+      timestamp: 2,
+      message: { role: "user", content: "use tool", timestamp: 2 },
+    } as any);
+    await appendTranscriptEvent(projectRoot, {
+      type: "message",
+      version: 1,
+      sessionId: "s1",
+      requestId: "r1",
+      uuid: "a1",
+      parentUuid: "u1",
+      seq: 3,
+      role: "assistant",
+      timestamp: 3,
+      toolCallId: "tool-1",
+      message: {
+        role: "assistant",
+        content: [{ type: "toolCall", id: "tool-1", name: "read", arguments: { path: "book-a/story/story_bible.md" } }],
+        api: "openai-completions",
+        provider: "openai",
+        model: "gemini-pro-latest",
+        usage: EMPTY_USAGE,
+        stopReason: "toolUse",
+        timestamp: 3,
+      },
+    } as any);
+    await appendTranscriptEvent(projectRoot, {
+      type: "message",
+      version: 1,
+      sessionId: "s1",
+      requestId: "r1",
+      uuid: "t1",
+      parentUuid: "a1",
+      seq: 4,
+      role: "toolResult",
+      timestamp: 4,
+      toolCallId: "tool-1",
+      sourceToolAssistantUuid: "a1",
+      message: {
+        role: "toolResult",
+        toolCallId: "tool-1",
+        toolName: "read",
+        content: [{ type: "text", text: "资料" }],
+        isError: false,
+        timestamp: 4,
+      },
+    } as any);
+    await appendTranscriptEvent(projectRoot, {
+      type: "request_committed",
+      version: 1,
+      sessionId: "s1",
+      requestId: "r1",
+      seq: 5,
+      timestamp: 5,
+    });
+
+    await runAgentSession(
+      { sessionId: "s1", bookId: "book-a", language: "zh", pipeline, projectRoot, model },
+      "again",
+    );
+
+    const body = JSON.stringify(streamCalls.at(-1)?.context.messages ?? []);
+    expect(body).not.toContain("I have processed the tool results.");
+    expect(body).toContain("[Tool results]");
+    expect(body).toContain("资料");
+  });
+
+  it("切到 DeepSeek 时不 replay 其他模型的原生 toolCall/toolResult 历史", async () => {
+    const pipeline = {} as any;
+    await appendTranscriptEvent(projectRoot, {
+      type: "request_started",
+      version: 1,
+      sessionId: "s1",
+      requestId: "r1",
+      seq: 1,
+      timestamp: 1,
+      input: "use tool",
+    });
+    await appendTranscriptEvent(projectRoot, {
+      type: "message",
+      version: 1,
+      sessionId: "s1",
+      requestId: "r1",
+      uuid: "a1",
+      parentUuid: null,
+      seq: 2,
+      role: "assistant",
+      timestamp: 2,
+      toolCallId: "tool-1",
+      message: {
+        role: "assistant",
+        content: [{ type: "toolCall", id: "tool-1", name: "read", arguments: { path: "book-a/story/story_bible.md" } }],
+        api: "openai-completions",
+        provider: "openai",
+        model: "gemini-pro-latest",
+        usage: EMPTY_USAGE,
+        stopReason: "toolUse",
+        timestamp: 2,
+      },
+    } as any);
+    await appendTranscriptEvent(projectRoot, {
+      type: "message",
+      version: 1,
+      sessionId: "s1",
+      requestId: "r1",
+      uuid: "t1",
+      parentUuid: "a1",
+      seq: 3,
+      role: "toolResult",
+      timestamp: 3,
+      toolCallId: "tool-1",
+      sourceToolAssistantUuid: "a1",
+      message: {
+        role: "toolResult",
+        toolCallId: "tool-1",
+        toolName: "read",
+        content: [{ type: "text", text: "资料" }],
+        isError: false,
+        timestamp: 3,
+      },
+    } as any);
+    await appendTranscriptEvent(projectRoot, {
+      type: "request_committed",
+      version: 1,
+      sessionId: "s1",
+      requestId: "r1",
+      seq: 4,
+      timestamp: 4,
+    });
+
+    await runAgentSession(
+      {
+        sessionId: "s1",
+        bookId: "book-a",
+        language: "zh",
+        pipeline,
+        projectRoot,
+        model: { provider: "openai", id: "deepseek-v4-pro", api: "openai-completions", input: ["text"] } as any,
+      },
+      "again",
+    );
+
+    const messages = streamCalls.at(-1)?.context.messages ?? [];
+    const body = JSON.stringify(messages);
+    expect(body).not.toContain("\"toolCall\"");
+    expect(messages.some((message: any) => message.role === "toolResult")).toBe(false);
+    expect(body).toContain("[Tool results]");
+    expect(body).toContain("资料");
+  });
+
+  it("返回 pi-agent-core final assistant error，供 API 层保留真实根因", async () => {
+    const model = { provider: "x", id: "y", api: "anthropic-messages" } as any;
+    const pipeline = {} as any;
+
+    const result = await runAgentSession(
+      { sessionId: "s1", bookId: "book-a", language: "zh", pipeline, projectRoot, model },
+      "model error",
+    );
+
+    expect(result.responseText).toBe("");
+    expect(result.errorMessage).toBe("400 status code (no body)");
   });
 });

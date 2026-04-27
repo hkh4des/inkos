@@ -68,7 +68,7 @@ const emptyUsage = {
   cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
 };
 
-const TOOL_RESULT_BRIDGE_TEXT = "I have processed the tool results.";
+export const TOOL_RESULT_BRIDGE_TEXT = "I have processed the tool results.";
 
 function toolResultBridgeMessage(timestamp: number): AgentMessage {
   return {
@@ -151,25 +151,149 @@ export function adaptRestoredAgentMessagesForModel(
   messages: AgentMessage[],
   target: TargetModelIdentity,
 ): AgentMessage[] {
-  return messages
-    .map((message) => {
+  const adapted: AgentMessage[] = [];
+  const nativeToolCallIds = new Set<string>();
+
+  const pushToolResultsAsUser = (toolResults: AgentMessage[]) => {
+    const lines = toolResults.flatMap((message) => {
+      const raw: Record<string, unknown> = isObject(message) ? message : {};
+      const toolName = typeof raw.toolName === "string" ? raw.toolName : "tool";
+      const toolCallId = typeof raw.toolCallId === "string" ? raw.toolCallId : "unknown";
+      const text = contentBlocks(raw)
+        .map((block) => {
+          if (isObject(block) && block.type === "text" && typeof block.text === "string") {
+            return block.text;
+          }
+          return "";
+        })
+        .filter(Boolean)
+        .join("\n")
+        .trim() || "(empty tool result)";
+      return [`- ${toolName} (${toolCallId}):`, text];
+    });
+    const timestamp = toolResults.reduce((max, message) => {
+      if (isObject(message) && typeof message.timestamp === "number") {
+        return Math.max(max, message.timestamp);
+      }
+      return max;
+    }, 0) || Date.now();
+    adapted.push({
+      role: "user",
+      content: [
+        "[Tool results]",
+        ...lines,
+        "These tool results were restored from a previous model run. Use them as context only.",
+      ].join("\n"),
+      timestamp,
+    } as AgentMessage);
+  };
+
+  for (let index = 0; index < messages.length; index++) {
+    const message = messages[index];
+    if (!isObject(message)) continue;
+
+    if (message.role === "assistant") {
+      const content = contentBlocks(message);
+      const isBridge = content.length === 1 &&
+        isObject(content[0]) &&
+        content[0].type === "text" &&
+        typeof content[0].text === "string" &&
+        content[0].text.trim() === TOOL_RESULT_BRIDGE_TEXT;
+      const previous = adapted[adapted.length - 1];
       if (
-        !isObject(message) ||
-        message.role !== "assistant" ||
-        !Array.isArray(message.content) ||
-        isSameAssistantModel(message, target)
+        isBridge &&
+        isObject(previous) &&
+        previous.role === "user" &&
+        typeof previous.content === "string" &&
+        previous.content.startsWith("[Tool results]")
       ) {
-        return message;
+        continue;
       }
 
-      const content = message.content.filter((block) => !isThinkingBlock(block));
-      if (content.length === message.content.length) return message;
-      return { ...message, content } as AgentMessage;
-    })
-    .filter((message) => {
-      if (!isObject(message) || message.role !== "assistant") return true;
-      return hasTextContent(message) || hasToolCallContent(message);
-    });
+      if (Array.isArray(message.content) && isSameAssistantModel(message, target)) {
+        adapted.push(message);
+        for (const id of toolCallIds(message)) nativeToolCallIds.add(id);
+        continue;
+      }
+
+      const contentWithoutThinking = content.filter((block) => !isThinkingBlock(block));
+      const foreignToolCallIds = new Set(
+        contentWithoutThinking
+          .filter(
+            (block): block is Record<string, unknown> =>
+              isObject(block) && block.type === "toolCall" && typeof block.id === "string",
+          )
+          .map((block) => block.id as string),
+      );
+
+      if (foreignToolCallIds.size === 0) {
+        const rewritten = contentWithoutThinking.length === content.length
+          ? message
+          : ({ ...message, content: contentWithoutThinking } as AgentMessage);
+        if (
+          contentWithoutThinking.some(
+            (block) =>
+              isObject(block) &&
+              block.type === "text" &&
+              typeof block.text === "string" &&
+              block.text.length > 0,
+          )
+        ) {
+          adapted.push(rewritten);
+        }
+        continue;
+      }
+
+      const textContent = contentWithoutThinking.filter(
+        (block): block is { type: "text"; text: string } =>
+          isObject(block) &&
+          block.type === "text" &&
+          typeof block.text === "string" &&
+          block.text.trim().length > 0,
+      );
+      if (textContent.length > 0) {
+        adapted.push({ ...message, content: textContent } as AgentMessage);
+      }
+
+      const toolResults: AgentMessage[] = [];
+      let nextIndex = index + 1;
+      while (nextIndex < messages.length) {
+        const next = messages[nextIndex];
+        if (
+          !isObject(next) ||
+          next.role !== "toolResult" ||
+          typeof next.toolCallId !== "string" ||
+          !foreignToolCallIds.has(next.toolCallId)
+        ) {
+          break;
+        }
+        toolResults.push(next);
+        nextIndex += 1;
+      }
+      if (toolResults.length > 0) {
+        pushToolResultsAsUser(toolResults);
+        index = nextIndex - 1;
+      }
+      continue;
+    }
+
+    if (message.role === "toolResult") {
+      const toolCallId = typeof message.toolCallId === "string" ? message.toolCallId : "";
+      if (nativeToolCallIds.has(toolCallId)) {
+        adapted.push(message);
+      } else {
+        pushToolResultsAsUser([message]);
+      }
+      continue;
+    }
+
+    adapted.push(message);
+  }
+
+  return adapted.filter((message) => {
+    if (!isObject(message) || message.role !== "assistant") return true;
+    return hasTextContent(message) || hasToolCallContent(message);
+  });
 }
 
 export function committedMessageEvents(events: TranscriptEvent[]): MessageEvent[] {
