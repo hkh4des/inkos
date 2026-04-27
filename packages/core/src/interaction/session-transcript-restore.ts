@@ -349,7 +349,10 @@ function firstUserMessageTitle(messages: InteractionMessage[]): string | null {
   return null;
 }
 
-function messageEventToInteractionMessage(event: MessageEvent): InteractionMessage | null {
+function messageEventToInteractionMessage(
+  event: MessageEvent,
+  restoredToolExecutions?: ToolExecution[],
+): InteractionMessage | null {
   const raw = event.message as Record<string, unknown>;
   if (!isObject(raw)) return null;
   if (event.role === "toolResult") return null;
@@ -362,14 +365,15 @@ function messageEventToInteractionMessage(event: MessageEvent): InteractionMessa
   if (event.role === "assistant") {
     const content = textFromContent(raw.content);
     const thinking = thinkingFromContent(raw.content) ?? event.legacyDisplay?.thinking;
+    const toolExecutions = restoredToolExecutions?.length
+      ? restoredToolExecutions
+      : event.legacyDisplay?.toolExecutions as ToolExecution[] | undefined;
     if (!content) return null;
     return {
       role: "assistant",
       content,
       ...(thinking ? { thinking } : {}),
-      ...(event.legacyDisplay?.toolExecutions
-        ? { toolExecutions: event.legacyDisplay.toolExecutions as ToolExecution[] }
-        : {}),
+      ...(toolExecutions?.length ? { toolExecutions } : {}),
       timestamp: event.timestamp,
     };
   }
@@ -380,6 +384,130 @@ function messageEventToInteractionMessage(event: MessageEvent): InteractionMessa
   }
 
   return null;
+}
+
+function messageEventsToInteractionMessages(events: MessageEvent[]): InteractionMessage[] {
+  type RestoredToolCall = {
+    id: string;
+    tool: string;
+    args?: Record<string, unknown>;
+    timestamp: number;
+  };
+
+  const agentLabels: Record<string, string> = {
+    architect: "建书",
+    writer: "写作",
+    auditor: "审计",
+    reviser: "修订",
+    exporter: "导出",
+  };
+  const toolLabels: Record<string, string> = {
+    read: "读取文件",
+    edit: "编辑文件",
+    grep: "搜索",
+    ls: "列目录",
+  };
+
+  const messages: InteractionMessage[] = [];
+  const toolCalls = new Map<string, RestoredToolCall>();
+  let pendingToolExecutions: ToolExecution[] = [];
+
+  const objectArgs = (value: unknown): Record<string, unknown> | undefined => {
+    if (isObject(value)) return value;
+    if (typeof value !== "string" || !value.trim()) return undefined;
+    try {
+      const parsed: unknown = JSON.parse(value);
+      return isObject(parsed) ? parsed : undefined;
+    } catch {
+      return undefined;
+    }
+  };
+
+  const resolveToolLabel = (tool: string, agent?: string): string => {
+    if (tool === "sub_agent" && agent) return agentLabels[agent] ?? agent;
+    return toolLabels[tool] ?? tool;
+  };
+
+  const rememberToolCalls = (event: MessageEvent, raw: Record<string, unknown>) => {
+    for (const block of contentBlocks(raw)) {
+      if (!isObject(block) || block.type !== "toolCall") continue;
+      if (typeof block.id !== "string" || !block.id) continue;
+      const tool = typeof block.name === "string" && block.name ? block.name : "tool";
+      const args = objectArgs(block.arguments);
+      toolCalls.set(block.id, {
+        id: block.id,
+        tool,
+        ...(args ? { args } : {}),
+        timestamp: event.timestamp,
+      });
+    }
+  };
+
+  const toolExecutionFromResult = (event: MessageEvent): ToolExecution | null => {
+    const raw = event.message as Record<string, unknown>;
+    if (!isObject(raw)) return null;
+    const toolCallId = typeof raw.toolCallId === "string"
+      ? raw.toolCallId
+      : typeof event.toolCallId === "string"
+        ? event.toolCallId
+        : "";
+    if (!toolCallId) return null;
+
+    const call = toolCalls.get(toolCallId);
+    const tool = typeof raw.toolName === "string" && raw.toolName
+      ? raw.toolName
+      : call?.tool ?? "tool";
+    const args = call?.args;
+    const agent = tool === "sub_agent" && typeof args?.agent === "string"
+      ? args.agent
+      : undefined;
+    const text = textFromContent(raw.content).trim();
+    const isError = raw.isError === true;
+
+    return {
+      id: toolCallId,
+      tool,
+      ...(agent ? { agent } : {}),
+      label: resolveToolLabel(tool, agent),
+      status: isError ? "error" : "completed",
+      ...(args ? { args } : {}),
+      ...(isError
+        ? { error: text.slice(0, 500) || "Tool execution failed" }
+        : text
+          ? { result: text.slice(0, 200) }
+          : {}),
+      startedAt: call?.timestamp ?? event.timestamp,
+      completedAt: event.timestamp,
+    };
+  };
+
+  for (const event of events) {
+    const raw = event.message as Record<string, unknown>;
+
+    if (event.role === "assistant" && isObject(raw)) {
+      rememberToolCalls(event, raw);
+      const message = messageEventToInteractionMessage(
+        event,
+        pendingToolExecutions.length > 0 ? pendingToolExecutions : undefined,
+      );
+      if (message) {
+        messages.push(message);
+        pendingToolExecutions = [];
+      }
+      continue;
+    }
+
+    if (event.role === "toolResult") {
+      const execution = toolExecutionFromResult(event);
+      if (execution) pendingToolExecutions.push(execution);
+      continue;
+    }
+
+    const message = messageEventToInteractionMessage(event);
+    if (message) messages.push(message);
+  }
+
+  return messages.sort((a, b) => a.timestamp - b.timestamp);
 }
 
 export async function deriveBookSessionFromTranscript(
@@ -406,10 +534,7 @@ export async function deriveBookSessionFromTranscript(
     updatedAt = event.updatedAt;
   }
 
-  const messages = committedMessageEvents(events)
-    .map(messageEventToInteractionMessage)
-    .filter((message): message is InteractionMessage => message !== null)
-    .sort((a, b) => a.timestamp - b.timestamp);
+  const messages = messageEventsToInteractionMessages(committedMessageEvents(events));
 
   if (title === null) {
     title = firstUserMessageTitle(messages);

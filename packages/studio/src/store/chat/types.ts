@@ -53,6 +53,7 @@ export interface SessionMessage {
   readonly role: "user" | "assistant" | "system";
   readonly content: string;
   readonly thinking?: string;
+  readonly toolExecutions?: ReadonlyArray<ToolExecution>;
   readonly timestamp: number;
 }
 

@@ -765,4 +765,134 @@ describe("session transcript restore", () => {
       ],
     });
   });
+
+  it("从 transcript 派生 BookSession UI 工具执行记录", async () => {
+    await appendTranscriptEvent(projectRoot, {
+      type: "session_created",
+      version: 1,
+      sessionId: "s1",
+      seq: 1,
+      timestamp: 1,
+      bookId: "book-a",
+      title: null,
+      createdAt: 1,
+      updatedAt: 1,
+    });
+    await appendTranscriptEvent(projectRoot, {
+      type: "request_started",
+      version: 1,
+      sessionId: "s1",
+      requestId: "r1",
+      seq: 2,
+      timestamp: 2,
+      input: "查看角色目录",
+    });
+    await appendTranscriptEvent(projectRoot, {
+      type: "message",
+      version: 1,
+      sessionId: "s1",
+      requestId: "r1",
+      uuid: "u1",
+      parentUuid: null,
+      seq: 3,
+      role: "user",
+      timestamp: 3,
+      message: { role: "user", content: "查看角色目录", timestamp: 3 },
+    } as MessageEvent);
+    await appendTranscriptEvent(projectRoot, {
+      type: "message",
+      version: 1,
+      sessionId: "s1",
+      requestId: "r1",
+      uuid: "a1",
+      parentUuid: "u1",
+      seq: 4,
+      role: "assistant",
+      timestamp: 4,
+      toolCallId: "ls-1",
+      message: {
+        role: "assistant",
+        content: [
+          { type: "thinking", thinking: "先列目录" },
+          { type: "toolCall", id: "ls-1", name: "ls", arguments: { bookId: "book-a", subdir: "story/roles" } },
+        ],
+        api: "google-generative-ai",
+        provider: "google",
+        model: "gemini-pro-latest",
+        usage,
+        stopReason: "toolUse",
+        timestamp: 4,
+      },
+    } as MessageEvent);
+    await appendTranscriptEvent(projectRoot, {
+      type: "message",
+      version: 1,
+      sessionId: "s1",
+      requestId: "r1",
+      uuid: "t1",
+      parentUuid: "a1",
+      seq: 5,
+      role: "toolResult",
+      timestamp: 5,
+      toolCallId: "ls-1",
+      sourceToolAssistantUuid: "a1",
+      message: {
+        role: "toolResult",
+        toolCallId: "ls-1",
+        toolName: "ls",
+        content: [{ type: "text", text: "主要角色/\n次要角色/" }],
+        isError: false,
+        timestamp: 5,
+      },
+    } as MessageEvent);
+    await appendTranscriptEvent(projectRoot, {
+      type: "message",
+      version: 1,
+      sessionId: "s1",
+      requestId: "r1",
+      uuid: "a2",
+      parentUuid: "t1",
+      seq: 6,
+      role: "assistant",
+      timestamp: 6,
+      message: {
+        role: "assistant",
+        content: [{ type: "text", text: "角色目录已查看。" }],
+        api: "google-generative-ai",
+        provider: "google",
+        model: "gemini-pro-latest",
+        usage,
+        stopReason: "stop",
+        timestamp: 6,
+      },
+    } as MessageEvent);
+    await appendTranscriptEvent(projectRoot, {
+      type: "request_committed",
+      version: 1,
+      sessionId: "s1",
+      requestId: "r1",
+      seq: 7,
+      timestamp: 7,
+    });
+
+    const session = await deriveBookSessionFromTranscript(projectRoot, "s1");
+
+    expect(session?.messages).toMatchObject([
+      { role: "user", content: "查看角色目录" },
+      {
+        role: "assistant",
+        content: "角色目录已查看。",
+        toolExecutions: [{
+          id: "ls-1",
+          tool: "ls",
+          label: "列目录",
+          status: "completed",
+          args: { bookId: "book-a", subdir: "story/roles" },
+          result: "主要角色/\n次要角色/",
+          startedAt: 4,
+          completedAt: 5,
+        }],
+      },
+    ]);
+  });
 });
