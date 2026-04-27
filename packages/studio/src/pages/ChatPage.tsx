@@ -213,7 +213,7 @@ export function ChatPage({ activeBookId, nav, theme, t, sse: _sse }: ChatPagePro
       {/* Message scroll area */}
       <div
         ref={scrollRef}
-        className="flex-1 overflow-y-auto px-4 py-6"
+        className="chat-message-scroll flex-1 overflow-y-auto [scrollbar-gutter:stable] px-4 py-6"
       >
         {messages.length === 0 && !loading ? (
           <div className="h-full flex flex-col items-center justify-center text-center select-none">
