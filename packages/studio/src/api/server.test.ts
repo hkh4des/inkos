@@ -1766,6 +1766,21 @@ describe("createStudioServer daemon lifecycle", () => {
     );
   });
 
+  it("does not override system file read policy from Studio agent API by default", async () => {
+    const { createStudioServer } = await import("./server.js");
+    const app = createStudioServer(cloneProjectConfig() as never, root);
+
+    const response = await app.request("http://localhost/api/v1/agent", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ instruction: "continue", activeBookId: "demo-book", sessionId: "agent-session-1" }),
+    });
+
+    expect(response.status).toBe(200);
+    const agentConfig = runAgentSessionMock.mock.calls.at(-1)?.[0] as Record<string, unknown>;
+    expect("allowSystemFileRead" in agentConfig).toBe(false);
+  });
+
   it("does not append or persist legacy BookSession messages after agent success", async () => {
     runAgentSessionMock.mockResolvedValueOnce({
       responseText: "Agent response.",
