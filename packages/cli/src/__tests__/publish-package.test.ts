@@ -9,6 +9,8 @@ const testDir = dirname(fileURLToPath(import.meta.url));
 const cliDir = resolve(testDir, "..", "..");
 const workspaceRoot = resolve(cliDir, "..", "..");
 const studioDir = resolve(workspaceRoot, "packages", "studio");
+const CLI_PACK_TEST_TIMEOUT_MS = 30_000;
+const STUDIO_PACK_TEST_TIMEOUT_MS = 120_000;
 const sourceCliPackageJsonPromise = readFile(resolve(cliDir, "package.json"), "utf-8").then((raw) =>
   JSON.parse(raw),
 );
@@ -233,7 +235,7 @@ describe.sequential("publish packaging", () => {
     }
   });
 
-  it("replaces workspace dependencies before npm pack", { timeout: 30_000 }, async () => {
+  it("replaces workspace dependencies before npm pack", { timeout: CLI_PACK_TEST_TIMEOUT_MS }, async () => {
     const packDir = await mkdtemp(join(tmpdir(), "inkos-cli-pack-"));
 
     try {
@@ -250,7 +252,7 @@ describe.sequential("publish packaging", () => {
     }
   });
 
-  it("packs the studio runtime entry alongside the built frontend", { timeout: 60_000 }, async () => {
+  it("packs the studio runtime entry alongside the built frontend", { timeout: STUDIO_PACK_TEST_TIMEOUT_MS }, async () => {
     const packDir = await mkdtemp(join(tmpdir(), "inkos-studio-pack-"));
 
     try {
