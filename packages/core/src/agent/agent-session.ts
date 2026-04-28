@@ -18,8 +18,8 @@ import {
 } from "./agent-tools.js";
 import { createBookContextTransform } from "./context-transform.js";
 import {
+  appendTranscriptEvents,
   appendTranscriptEvent,
-  nextTranscriptSeq,
   readTranscriptEvents,
 } from "../interaction/session-transcript.js";
 import {
@@ -67,21 +67,20 @@ export interface AgentSessionResult {
 // Cache
 // ---------------------------------------------------------------------------
 
-// We only record fields that can realistically change between turns on the
-// same sessionId and are captured into the Agent at construction time.
-// `projectRoot`, `language`, and `pipeline` are also closure-captured by the
-// Agent (into systemPrompt / tools / transformContext), but within a single
-// server process they're treated as stable — we don't re-check them.
 interface CachedAgent {
   agent: Agent;
+  projectRoot: string;
   bookId: string | null;
+  language: string;
   modelIdentity: string;
+  apiKey: string | undefined;
   allowSystemFileRead: boolean;
   lastCommittedSeq: number;
   lastActive: number;
 }
 
 const agentCache = new Map<string, CachedAgent>();
+const agentSessionQueues = new Map<string, Promise<void>>();
 
 /** TTL for cached agents: 5 minutes. */
 const CACHE_TTL_MS = 5 * 60 * 1000;
@@ -145,6 +144,35 @@ function agentModelIdentity(model: Model<Api>): string {
   ].join("::");
 }
 
+function sessionQueueKey(projectRoot: string, sessionId: string): string {
+  return `${projectRoot}\0${sessionId}`;
+}
+
+async function runInAgentSessionQueue<T>(
+  projectRoot: string,
+  sessionId: string,
+  task: () => Promise<T>,
+): Promise<T> {
+  const key = sessionQueueKey(projectRoot, sessionId);
+  const previous = agentSessionQueues.get(key) ?? Promise.resolve();
+  let release!: () => void;
+  const gate = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const queued = previous.catch(() => undefined).then(() => gate);
+  agentSessionQueues.set(key, queued);
+
+  await previous.catch(() => undefined);
+  try {
+    return await task();
+  } finally {
+    release();
+    if (agentSessionQueues.get(key) === queued) {
+      agentSessionQueues.delete(key);
+    }
+  }
+}
+
 async function latestCommittedSeq(projectRoot: string, sessionId: string): Promise<number> {
   const events = await readTranscriptEvents(projectRoot, sessionId);
   return events
@@ -198,22 +226,29 @@ async function ensureSessionCreatedEvent(
   sessionId: string,
   bookId: string | null,
 ): Promise<number> {
-  const events = await readTranscriptEvents(projectRoot, sessionId);
-  if (events.length > 0) return events.reduce((max, event) => Math.max(max, event.seq), 0) + 1;
+  const created = await appendTranscriptEvents(projectRoot, sessionId, ({ events, nextSeq }) => {
+    if (events.length > 0) return [];
 
-  const now = Date.now();
-  await appendTranscriptEvent(projectRoot, {
-    type: "session_created",
-    version: 1,
-    sessionId,
-    seq: 1,
-    timestamp: now,
-    bookId,
-    title: null,
-    createdAt: now,
-    updatedAt: now,
+    const now = Date.now();
+    return [{
+      type: "session_created",
+      version: 1,
+      sessionId,
+      seq: nextSeq,
+      timestamp: now,
+      bookId,
+      title: null,
+      createdAt: now,
+      updatedAt: now,
+    }];
   });
-  return 2;
+
+  if (created.length > 0) {
+    return created.reduce((max, event) => Math.max(max, event.seq), 0) + 1;
+  }
+
+  const events = await readTranscriptEvents(projectRoot, sessionId);
+  return events.reduce((max, event) => Math.max(max, event.seq), 0) + 1;
 }
 
 /**
@@ -431,6 +466,16 @@ export async function runAgentSession(
   userMessage: string,
   initialMessages?: Array<{ role: string; content: string }>,
 ): Promise<AgentSessionResult> {
+  return runInAgentSessionQueue(config.projectRoot, config.sessionId, () =>
+    runAgentSessionUnlocked(config, userMessage, initialMessages)
+  );
+}
+
+async function runAgentSessionUnlocked(
+  config: AgentSessionConfig,
+  userMessage: string,
+  initialMessages?: Array<{ role: string; content: string }>,
+): Promise<AgentSessionResult> {
   const { sessionId, language, pipeline, projectRoot, onEvent } = config;
   // Normalize at the entry point so downstream comparisons, closures, and
   // fs paths never see `undefined`. The type is already `string | null`, but
@@ -453,11 +498,22 @@ export async function runAgentSession(
     // bookId via closures in systemPrompt / tools / transformContext), so a
     // mismatch means the cached Agent would keep using stale context.
     const modelChanged = cached.modelIdentity !== requestedModelIdentity;
+    const projectRootChanged = cached.projectRoot !== projectRoot;
     const bookChanged = cached.bookId !== bookId;
+    const languageChanged = cached.language !== language;
+    const apiKeyChanged = cached.apiKey !== config.apiKey;
     const readPermissionChanged = cached.allowSystemFileRead !== allowSystemFileRead;
     const transcriptChanged = cached.lastCommittedSeq !== currentCommittedSeq;
 
-    if (modelChanged || bookChanged || readPermissionChanged || transcriptChanged) {
+    if (
+      modelChanged ||
+      projectRootChanged ||
+      bookChanged ||
+      languageChanged ||
+      apiKeyChanged ||
+      readPermissionChanged ||
+      transcriptChanged
+    ) {
       agentCache.delete(sessionId);
       cached = undefined;
     }
@@ -501,8 +557,11 @@ export async function runAgentSession(
 
     cached = {
       agent,
+      projectRoot,
       bookId,
+      language,
       modelIdentity: requestedModelIdentity,
+      apiKey: config.apiKey,
       allowSystemFileRead,
       lastCommittedSeq: currentCommittedSeq ?? await latestCommittedSeq(projectRoot, sessionId),
       lastActive: Date.now(),
@@ -613,6 +672,7 @@ export async function runAgentSession(
       timestamp: Date.now(),
       error: error instanceof Error ? error.message : String(error),
     });
+    agentCache.delete(sessionId);
     throw error;
   } finally {
     unsubscribe();

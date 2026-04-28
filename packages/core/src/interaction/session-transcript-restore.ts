@@ -352,6 +352,13 @@ function thinkingFromContent(content: unknown): string | undefined {
   return value || undefined;
 }
 
+function joinThinking(parts: ReadonlyArray<string | undefined>): string | undefined {
+  const values = parts
+    .map((part) => part?.trim() ?? "")
+    .filter((part) => part.length > 0);
+  return values.length > 0 ? values.join("\n\n---\n\n") : undefined;
+}
+
 function firstUserMessageTitle(messages: InteractionMessage[]): string | null {
   for (const message of messages) {
     if (message.role !== "user") continue;
@@ -365,6 +372,7 @@ function firstUserMessageTitle(messages: InteractionMessage[]): string | null {
 function messageEventToInteractionMessage(
   event: MessageEvent,
   restoredToolExecutions?: ToolExecution[],
+  restoredThinking?: ReadonlyArray<string>,
 ): InteractionMessage | null {
   const raw = event.message as Record<string, unknown>;
   if (!isObject(raw)) return null;
@@ -377,7 +385,11 @@ function messageEventToInteractionMessage(
 
   if (event.role === "assistant") {
     const content = textFromContent(raw.content);
-    const thinking = thinkingFromContent(raw.content) ?? event.legacyDisplay?.thinking;
+    const thinking = joinThinking([
+      ...(restoredThinking ?? []),
+      thinkingFromContent(raw.content),
+      event.legacyDisplay?.thinking,
+    ]);
     const toolExecutions = restoredToolExecutions?.length
       ? restoredToolExecutions
       : event.legacyDisplay?.toolExecutions as ToolExecution[] | undefined;
@@ -424,6 +436,7 @@ function messageEventsToInteractionMessages(events: MessageEvent[]): Interaction
   const messages: InteractionMessage[] = [];
   const toolCalls = new Map<string, RestoredToolCall>();
   let pendingToolExecutions: ToolExecution[] = [];
+  let pendingThinking: string[] = [];
 
   const objectArgs = (value: unknown): Record<string, unknown> | undefined => {
     if (isObject(value)) return value;
@@ -499,13 +512,18 @@ function messageEventsToInteractionMessages(events: MessageEvent[]): Interaction
 
     if (event.role === "assistant" && isObject(raw)) {
       rememberToolCalls(event, raw);
+      const currentThinking = thinkingFromContent(raw.content);
       const message = messageEventToInteractionMessage(
         event,
         pendingToolExecutions.length > 0 ? pendingToolExecutions : undefined,
+        pendingThinking.length > 0 ? pendingThinking : undefined,
       );
       if (message) {
         messages.push(message);
         pendingToolExecutions = [];
+        pendingThinking = [];
+      } else if (hasToolCallContent(raw) && currentThinking) {
+        pendingThinking.push(currentThinking);
       }
       continue;
     }
@@ -520,7 +538,7 @@ function messageEventsToInteractionMessages(events: MessageEvent[]): Interaction
     if (message) messages.push(message);
   }
 
-  return messages.sort((a, b) => a.timestamp - b.timestamp);
+  return messages;
 }
 
 export async function deriveBookSessionFromTranscript(
@@ -536,15 +554,22 @@ export async function deriveBookSessionFromTranscript(
   const createdAt = created?.type === "session_created"
     ? created.createdAt
     : events[0]?.timestamp ?? Date.now();
+  const latestActivityTimestamp = events.reduce((max, event) => {
+    if (event.type === "session_created" || event.type === "session_metadata_updated") {
+      return Math.max(max, event.updatedAt);
+    }
+    return Math.max(max, event.timestamp);
+  }, 0);
   let updatedAt = created?.type === "session_created"
     ? created.updatedAt
     : events[events.length - 1]?.timestamp ?? createdAt;
+  updatedAt = Math.max(updatedAt, latestActivityTimestamp);
 
   for (const event of events) {
     if (event.type !== "session_metadata_updated") continue;
     if ("bookId" in event && event.bookId !== undefined) bookId = event.bookId;
     if ("title" in event && event.title !== undefined) title = event.title;
-    updatedAt = event.updatedAt;
+    updatedAt = Math.max(updatedAt, event.updatedAt);
   }
 
   const messages = messageEventsToInteractionMessages(committedMessageEvents(events));

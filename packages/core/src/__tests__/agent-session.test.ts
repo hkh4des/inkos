@@ -101,11 +101,16 @@ vi.mock("@mariozechner/pi-ai", async () => {
             ], timestamp)
           : assistant([{ type: "text", text: "ok" }], timestamp);
 
-    stream.push({
+    const done = () => stream.push({
       type: "done",
       reason: message.stopReason === "toolUse" ? "toolUse" : "stop",
       message,
     });
+    if (prompt.startsWith("slow ")) {
+      setTimeout(done, prompt.includes("first") ? 20 : 0);
+    } else {
+      done();
+    }
     return stream;
   });
 
@@ -661,5 +666,27 @@ describe("runAgentSession cache — bookId switch", () => {
     );
     expect(agentInstances).toHaveLength(instancesAfterError + 1);
     expect(JSON.stringify(streamCalls.at(-1)?.context.messages)).not.toContain("model error");
+  });
+
+  it("serializes concurrent turns before assigning transcript seq", async () => {
+    const model = { provider: "x", id: "y", api: "anthropic-messages" } as any;
+    const pipeline = {} as any;
+
+    await Promise.all([
+      runAgentSession(
+        { sessionId: "s-turn-race", bookId: "book-a", language: "zh", pipeline, projectRoot, model },
+        "slow first",
+      ),
+      runAgentSession(
+        { sessionId: "s-turn-race", bookId: "book-a", language: "zh", pipeline, projectRoot, model },
+        "slow second",
+      ),
+    ]);
+
+    const events = await readTranscriptEvents(projectRoot, "s-turn-race");
+
+    expect(events.filter((event) => event.type === "session_created")).toHaveLength(1);
+    expect(events.filter((event) => event.type === "request_committed")).toHaveLength(2);
+    expect(events.map((event) => event.seq)).toEqual(events.map((_, index) => index + 1));
   });
 });

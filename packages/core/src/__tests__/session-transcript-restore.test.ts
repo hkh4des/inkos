@@ -939,6 +939,7 @@ describe("session transcript restore", () => {
       {
         role: "assistant",
         content: "角色目录已查看。",
+        thinking: "先列目录",
         toolExecutions: [{
           id: "ls-1",
           tool: "ls",
@@ -951,5 +952,73 @@ describe("session transcript restore", () => {
         }],
       },
     ]);
+  });
+
+  it("keeps UI message order by transcript seq instead of message timestamp", async () => {
+    await appendTranscriptEvent(projectRoot, {
+      type: "session_created",
+      version: 1,
+      sessionId: "s1",
+      seq: 1,
+      timestamp: 1,
+      bookId: "book-a",
+      title: null,
+      createdAt: 1,
+      updatedAt: 1,
+    });
+    await appendTranscriptEvent(projectRoot, {
+      type: "request_started",
+      version: 1,
+      sessionId: "s1",
+      requestId: "r1",
+      seq: 2,
+      timestamp: 2,
+      input: "先问",
+    });
+    await appendTranscriptEvent(projectRoot, {
+      type: "message",
+      version: 1,
+      sessionId: "s1",
+      requestId: "r1",
+      uuid: "u1",
+      parentUuid: null,
+      seq: 3,
+      role: "user",
+      timestamp: 100,
+      message: { role: "user", content: "先问", timestamp: 100 },
+    } as MessageEvent);
+    await appendTranscriptEvent(projectRoot, {
+      type: "message",
+      version: 1,
+      sessionId: "s1",
+      requestId: "r1",
+      uuid: "a1",
+      parentUuid: "u1",
+      seq: 4,
+      role: "assistant",
+      timestamp: 50,
+      message: {
+        role: "assistant",
+        content: [{ type: "text", text: "后答" }],
+        api: "anthropic-messages",
+        provider: "anthropic",
+        model: "claude",
+        usage,
+        stopReason: "stop",
+        timestamp: 50,
+      },
+    } as MessageEvent);
+    await appendTranscriptEvent(projectRoot, {
+      type: "request_committed",
+      version: 1,
+      sessionId: "s1",
+      requestId: "r1",
+      seq: 5,
+      timestamp: 5,
+    });
+
+    const session = await deriveBookSessionFromTranscript(projectRoot, "s1");
+
+    expect(session?.messages.map((message) => message.content)).toEqual(["先问", "后答"]);
   });
 });

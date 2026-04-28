@@ -57,17 +57,20 @@ async function appendSessionCreatedEvent(
   projectRoot: string,
   session: BookSession,
 ): Promise<void> {
-  await appendTranscriptEvents(projectRoot, session.sessionId, ({ nextSeq }) => [{
-    type: "session_created",
-    version: 1,
-    sessionId: session.sessionId,
-    seq: nextSeq,
-    timestamp: session.createdAt,
-    bookId: session.bookId,
-    title: session.title,
-    createdAt: session.createdAt,
-    updatedAt: session.updatedAt,
-  }]);
+  await appendTranscriptEvents(projectRoot, session.sessionId, ({ events, nextSeq }) => {
+    if (events.some((event) => event.type === "session_created")) return [];
+    return [{
+      type: "session_created",
+      version: 1,
+      sessionId: session.sessionId,
+      seq: nextSeq,
+      timestamp: session.createdAt,
+      bookId: session.bookId,
+      title: session.title,
+      createdAt: session.createdAt,
+      updatedAt: session.updatedAt,
+    }];
+  });
 }
 
 async function appendSessionMetadataUpdatedEvent(

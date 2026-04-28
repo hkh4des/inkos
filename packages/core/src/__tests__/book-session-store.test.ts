@@ -14,7 +14,12 @@ import {
   SessionAlreadyMigratedError,
 } from "../interaction/book-session-store.js";
 import { createBookSession, appendBookSessionMessage } from "../interaction/session.js";
-import { legacyBookSessionPath, readTranscriptEvents, sessionsDir } from "../interaction/session-transcript.js";
+import {
+  appendManualSessionMessages,
+  legacyBookSessionPath,
+  readTranscriptEvents,
+  sessionsDir,
+} from "../interaction/session-transcript.js";
 import { restoreAgentMessagesFromTranscript } from "../interaction/session-transcript-restore.js";
 
 describe("book-session-store", () => {
@@ -150,6 +155,17 @@ describe("book-session-store", () => {
         .toThrow();
     });
 
+    it("does not duplicate session_created when explicit session creation races", async () => {
+      await Promise.all([
+        createAndPersistBookSession(tempDir, "book-a", "create-race"),
+        createAndPersistBookSession(tempDir, "book-a", "create-race"),
+      ]);
+
+      const events = await readTranscriptEvents(tempDir, "create-race");
+      expect(events.filter((event) => event.type === "session_created")).toHaveLength(1);
+      expect(events.map((event) => event.seq)).toEqual([1]);
+    });
+
     it("renameBookSession 追加 metadata event 并从 JSONL 派生新标题", async () => {
       await createAndPersistBookSession(tempDir, "book-a", "123456-abcdef");
 
@@ -207,6 +223,20 @@ describe("book-session-store", () => {
       expect(list[0].updatedAt).toBe(300);
       expect(list[1].updatedAt).toBe(200);
       expect(list[2].updatedAt).toBe(100);
+    });
+
+    it("updates session activity time from committed chat messages", async () => {
+      const session = await createAndPersistBookSession(tempDir, "book", "chat-activity");
+      await new Promise((resolve) => setTimeout(resolve, 5));
+
+      await appendManualSessionMessages(tempDir, session.sessionId, [{
+        role: "user",
+        content: "继续",
+        timestamp: Date.now(),
+      } as any]);
+
+      const loaded = await loadBookSession(tempDir, session.sessionId);
+      expect(loaded?.updatedAt).toBeGreaterThan(session.updatedAt);
     });
 
     it("lists null bookId sessions", async () => {
