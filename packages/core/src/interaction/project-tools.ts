@@ -18,6 +18,52 @@ import type { BookCreationDraft } from "./session.js";
 import { writeExportArtifact } from "./export-artifact.js";
 import { safeChildPath } from "../utils/path-safety.js";
 
+const SAFE_TRUTH_FLAT_FILE_NAMES = new Set([
+  "author_intent.md",
+  "current_focus.md",
+  "story_bible.md",
+  "volume_outline.md",
+  "book_rules.md",
+  "particle_ledger.md",
+  "subplot_board.md",
+  "emotional_arcs.md",
+  "style_guide.md",
+  "parent_canon.md",
+  "fanfic_canon.md",
+  "character_matrix.md",
+  "current_state.md",
+  "pending_hooks.md",
+  "chapter_summaries.md",
+]);
+
+const SAFE_TRUTH_OUTLINE_FILE_NAMES = new Set([
+  "outline/story_frame.md",
+  "outline/volume_map.md",
+  "outline/节奏原则.md",
+  "outline/rhythm_principles.md",
+]);
+
+const SAFE_ROLE_TRUTH_FILE_RE = /^roles\/(主要角色|次要角色|major|minor)\/[^/\\]+\.md$/u;
+
+export function assertSafeTruthFileName(fileName: string): string {
+  const trimmed = fileName.trim();
+  const withExtension = trimmed.endsWith(".md") ? trimmed : `${trimmed}.md`;
+  const lower = withExtension.toLowerCase();
+  if (
+    !trimmed ||
+    withExtension.startsWith("/") ||
+    withExtension.includes("\\") ||
+    withExtension.includes("\0") ||
+    withExtension.includes("..")
+  ) {
+    throw new Error(`Invalid truth file name: ${JSON.stringify(fileName)}`);
+  }
+  if (SAFE_TRUTH_FLAT_FILE_NAMES.has(lower)) return lower;
+  if (SAFE_TRUTH_OUTLINE_FILE_NAMES.has(lower)) return lower;
+  if (SAFE_ROLE_TRUTH_FILE_RE.test(withExtension)) return withExtension;
+  throw new Error(`Invalid truth file name: ${JSON.stringify(fileName)}`);
+}
+
 type PipelineLike = Pick<PipelineRunner, "writeNextChapter" | "reviseDraft"> & {
   readonly initBook?: (
     book: BookConfig,
@@ -667,7 +713,8 @@ export function createInteractionToolsFromDeps(
     writeTruthFile: async (bookId, fileName, content) => {
       await state.ensureControlDocuments(bookId);
       const storyDir = join(state.bookDir(bookId), "story");
-      const targetPath = safeChildPath(storyDir, fileName);
+      const safeFileName = assertSafeTruthFileName(fileName);
+      const targetPath = safeChildPath(storyDir, safeFileName);
       await mkdir(dirname(targetPath), { recursive: true });
       await writeFile(targetPath, content, "utf-8");
     },

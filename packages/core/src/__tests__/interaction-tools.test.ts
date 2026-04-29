@@ -184,6 +184,49 @@ describe("interaction tools", () => {
       .resolves.toContain("harbor mystery");
   });
 
+  it("rejects truth-file writes outside the canonical truth-file allowlist", async () => {
+    const tools = createInteractionToolsFromDeps(
+      {
+        writeNextChapter: vi.fn(async () => ({
+          chapterNumber: 1,
+          title: "Draft",
+          wordCount: 1000,
+          revised: false,
+          status: "ready-for-review" as const,
+          auditResult: { passed: true, issues: [], summary: "ok" },
+        })),
+        reviseDraft: vi.fn(async () => ({
+          chapterNumber: 3,
+          wordCount: 1200,
+          fixedIssues: [],
+          applied: true,
+          status: "ready-for-review" as const,
+        })),
+      },
+      {
+        ensureControlDocuments: vi.fn(async () => {}),
+        bookDir: vi.fn((bookId: string) => join(projectRoot, "books", bookId)),
+        loadBookConfig: vi.fn(async () => ({
+          id: "harbor",
+          title: "Harbor",
+          platform: "other" as const,
+          genre: "other",
+          status: "outlining" as const,
+          targetChapters: 200,
+          chapterWordCount: 3000,
+          createdAt: "2026-04-10T00:00:00.000Z",
+          updatedAt: "2026-04-10T00:00:00.000Z",
+        })),
+        loadChapterIndex: vi.fn(async () => []),
+        saveChapterIndex: vi.fn(async () => undefined),
+        listBooks: vi.fn(async () => ["harbor"]),
+      },
+    );
+
+    await expect(tools.writeTruthFile("harbor", "runtime/agent_notes.md", "notes"))
+      .rejects.toThrow("Invalid truth file name");
+  });
+
   it("forwards foundation draft fields into shared book creation", async () => {
     const pipeline = {
       initBook: vi.fn(async () => undefined),

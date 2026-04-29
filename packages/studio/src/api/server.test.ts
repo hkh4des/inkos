@@ -116,7 +116,9 @@ const logger = {
   error: vi.fn(),
 };
 
-vi.mock("@actalk/inkos-core", () => {
+vi.mock("@actalk/inkos-core", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@actalk/inkos-core")>();
+
   class MockSessionAlreadyMigratedError extends Error {
     constructor(message = "Session already migrated") {
       super(message);
@@ -198,16 +200,7 @@ vi.mock("@actalk/inkos-core", () => {
     createLLMClient: createLLMClientMock,
     createLogger: vi.fn(() => logger),
     computeAnalytics: vi.fn(() => ({})),
-    isSafeBookId: vi.fn((bookId: unknown) => (
-      typeof bookId === "string"
-      && bookId.length > 0
-      && bookId.length <= 120
-      && bookId.trim() === bookId
-      && bookId !== "."
-      && bookId !== ".."
-      && !bookId.includes("..")
-      && !/[\u0000-\u001f\u007f/\\:*?"'`{}<>|]/u.test(bookId)
-    )),
+    isSafeBookId: actual.isSafeBookId,
     chatCompletion: chatCompletionMock,
     loadProjectConfig: loadProjectConfigMock,
     processProjectInteractionInput: processProjectInteractionInputMock,
@@ -442,6 +435,14 @@ describe("createStudioServer daemon lifecycle", () => {
   afterEach(async () => {
     await rm(root, { recursive: true, force: true });
     await rm(join(tmpdir(), "inkos-global.env"), { force: true });
+  });
+
+  it("uses the real core bookId validator in the Studio safety mock", async () => {
+    const { isSafeBookId } = await import("@actalk/inkos-core");
+
+    expect(vi.isMockFunction(isSafeBookId)).toBe(false);
+    expect(isSafeBookId("demo-book")).toBe(true);
+    expect(isSafeBookId("demo/book")).toBe(false);
   });
 
   it("returns from /api/daemon/start before the first write cycle finishes", async () => {

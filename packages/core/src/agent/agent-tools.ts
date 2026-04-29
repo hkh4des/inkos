@@ -5,7 +5,7 @@ import { type ReviseMode } from "../agents/reviser.js";
 import { readFile, writeFile, readdir, stat } from "node:fs/promises";
 import { isAbsolute, join, resolve } from "node:path";
 import { StateManager } from "../state/manager.js";
-import { createInteractionToolsFromDeps } from "../interaction/project-tools.js";
+import { assertSafeTruthFileName, createInteractionToolsFromDeps } from "../interaction/project-tools.js";
 import { writeExportArtifact } from "../interaction/export-artifact.js";
 import { assertSafeBookId, deriveBookIdFromTitle } from "../utils/book-id.js";
 import { safeChildPath } from "../utils/path-safety.js";
@@ -255,52 +255,6 @@ const WriteTruthFileParams = Type.Object({
   fileName: Type.String({ description: "Truth file name under story/, e.g. story_bible.md or current_focus.md." }),
   content: Type.String({ description: "Full replacement content for the truth file." }),
 });
-
-const SAFE_TRUTH_FLAT_FILE_NAMES = new Set([
-  "author_intent.md",
-  "current_focus.md",
-  "story_bible.md",
-  "volume_outline.md",
-  "book_rules.md",
-  "particle_ledger.md",
-  "subplot_board.md",
-  "emotional_arcs.md",
-  "style_guide.md",
-  "parent_canon.md",
-  "fanfic_canon.md",
-  "character_matrix.md",
-  "current_state.md",
-  "pending_hooks.md",
-  "chapter_summaries.md",
-]);
-
-const SAFE_TRUTH_OUTLINE_FILE_NAMES = new Set([
-  "outline/story_frame.md",
-  "outline/volume_map.md",
-  "outline/节奏原则.md",
-  "outline/rhythm_principles.md",
-]);
-
-const SAFE_ROLE_TRUTH_FILE_RE = /^roles\/(主要角色|次要角色|major|minor)\/[^/\\]+\.md$/u;
-
-function assertSafeTruthFileName(fileName: string): string {
-  const trimmed = fileName.trim();
-  const withExtension = trimmed.endsWith(".md") ? trimmed : `${trimmed}.md`;
-  const lower = withExtension.toLowerCase();
-  if (
-    !trimmed ||
-    withExtension.startsWith("/") ||
-    withExtension.includes("\\") ||
-    withExtension.includes("\0") ||
-    withExtension.includes("..")
-  ) {
-    throw new Error(`Invalid truth file name: ${JSON.stringify(fileName)}`);
-  }
-  if (SAFE_TRUTH_FLAT_FILE_NAMES.has(lower)) return lower;
-  if (SAFE_TRUTH_OUTLINE_FILE_NAMES.has(lower)) return lower;
-  if (SAFE_ROLE_TRUTH_FILE_RE.test(withExtension)) return withExtension;
-  throw new Error(`Invalid truth file name: ${JSON.stringify(fileName)}`);
-}
 
 export function createWriteTruthFileTool(
   pipeline: PipelineRunner,
