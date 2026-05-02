@@ -776,6 +776,7 @@ export function createStudioServer(initialConfig: ProjectConfig, root: string) {
       model: overrides?.model ?? currentConfig.llm.model,
       projectRoot: root,
       defaultLLMConfig: currentConfig.llm,
+      foundationReviewRetries: currentConfig.foundation.reviewRetries,
       modelOverrides: currentConfig.modelOverrides,
       notifyChannels: currentConfig.notify,
       logger,

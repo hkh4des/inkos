@@ -76,6 +76,12 @@ export const QualityGatesSchema = z.object({
 
 export type QualityGates = z.infer<typeof QualityGatesSchema>;
 
+export const FoundationConfigSchema = z.object({
+  reviewRetries: z.number().int().min(0).max(10).default(2),
+});
+
+export type FoundationConfig = z.infer<typeof FoundationConfigSchema>;
+
 export const AgentLLMOverrideSchema = z.object({
   model: z.string().min(1),
   provider: z.enum(["anthropic", "openai", "custom"]).optional(),
@@ -98,6 +104,9 @@ export const ProjectConfigSchema = z.object({
   llm: LLMConfigSchema,
   notify: z.array(NotifyChannelSchema).default([]),
   detection: DetectionConfigSchema.optional(),
+  foundation: FoundationConfigSchema.default({
+    reviewRetries: 2,
+  }),
   modelOverrides: z.record(z.string(), ModelOverrideValueSchema).optional(),
   inputGovernanceMode: InputGovernanceModeSchema.default("v2"),
   daemon: z.object({

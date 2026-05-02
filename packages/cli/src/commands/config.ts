@@ -26,6 +26,7 @@ configCommand
         "llm.provider", "llm.baseUrl", "llm.model", "llm.temperature",
         "llm.thinkingBudget", "llm.apiFormat", "llm.stream",
         "inputGovernanceMode",
+        "foundation.reviewRetries",
         "daemon.schedule.radarCron", "daemon.schedule.writeCron",
         "daemon.maxConcurrentBooks", "daemon.chaptersPerCycle",
         "daemon.retryDelayMs", "daemon.cooldownAfterChapterMs",

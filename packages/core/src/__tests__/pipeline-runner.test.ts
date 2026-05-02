@@ -551,6 +551,68 @@ describe("PipelineRunner", () => {
     }
   });
 
+  it("honors configured foundation review retry count before accepting a rejected foundation", async () => {
+    const { root, runner, bookId } = await createRunnerFixture({
+      foundationReviewRetries: 4,
+    } as Partial<ConstructorParameters<typeof PipelineRunner>[0]>);
+    const reviewer = new FoundationReviewerAgent({
+      client: {
+        provider: "openai",
+        apiFormat: "chat",
+        stream: false,
+        defaults: {
+          temperature: 0.7,
+          thinkingBudget: 0,
+        },
+      } as ConstructorParameters<typeof PipelineRunner>[0]["client"],
+      model: "test-model",
+      projectRoot: root,
+      bookId,
+    });
+    const foundation = {
+      storyBible: "# Story Bible",
+      volumeOutline: "# Volume Outline",
+      bookRules: "---\nversion: \"1.0\"\n---\n\n# Book Rules",
+      currentState: "# Current State",
+      pendingHooks: "# Pending Hooks",
+    };
+    const generate = vi.fn(async (_reviewFeedback?: string) => foundation);
+    const reviewMock = vi.mocked(FoundationReviewerAgent.prototype.review);
+
+    reviewMock.mockReset();
+    reviewMock.mockResolvedValue({
+      passed: false,
+      totalScore: 72,
+      dimensions: [],
+      overallFeedback: "仍未达到可开写标准。",
+    });
+
+    try {
+      await (runner as unknown as {
+        generateAndReviewFoundation: (params: {
+          readonly generate: (reviewFeedback?: string) => Promise<typeof foundation>;
+          readonly reviewer: FoundationReviewerAgent;
+          readonly mode: "original";
+          readonly language: "zh";
+          readonly stageLanguage: "zh";
+        }) => Promise<typeof foundation>;
+      }).generateAndReviewFoundation({
+        generate,
+        reviewer,
+        mode: "original",
+        language: "zh",
+        stageLanguage: "zh",
+      });
+
+      expect(generate).toHaveBeenCalledTimes(5);
+      expect(reviewMock).toHaveBeenCalledTimes(5);
+      expect(generate.mock.calls[1]?.[0]).toContain("仍未达到可开写标准");
+      expect(generate.mock.calls[4]?.[0]).toContain("仍未达到可开写标准");
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
   it("bootstraps missing control documents for legacy books before writing", async () => {
     const { root, runner, bookId } = await createRunnerFixture();
 

@@ -147,6 +147,7 @@ export function buildPipelineConfig(
     model: config.llm.model,
     projectRoot: root,
     defaultLLMConfig: config.llm,
+    foundationReviewRetries: config.foundation.reviewRetries,
     modelOverrides: config.modelOverrides,
     inputGovernanceMode: extra?.inputGovernanceMode ?? config.inputGovernanceMode,
     notifyChannels: extra?.notifyChannels ?? config.notify,

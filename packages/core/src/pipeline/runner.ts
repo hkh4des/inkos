@@ -70,6 +70,7 @@ export interface PipelineConfig {
   readonly model: string;
   readonly projectRoot: string;
   readonly defaultLLMConfig?: LLMConfig;
+  readonly foundationReviewRetries?: number;
   readonly notifyChannels?: ReadonlyArray<NotifyChannel>;
   readonly radarSources?: ReadonlyArray<RadarSource>;
   readonly externalContext?: string;
@@ -269,7 +270,7 @@ export class PipelineRunner {
     readonly stageLanguage: LengthLanguage;
     readonly maxRetries?: number;
   }): Promise<ArchitectOutput> {
-    const maxRetries = params.maxRetries ?? 2;
+    const maxRetries = params.maxRetries ?? this.config.foundationReviewRetries ?? 2;
     let foundation = await params.generate();
 
     for (let attempt = 0; attempt < maxRetries; attempt++) {
