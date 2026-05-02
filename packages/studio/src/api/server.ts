@@ -2707,6 +2707,7 @@ export function createStudioServer(initialConfig: ProjectConfig, root: string) {
   app.post("/api/v1/books/:id/style/import", async (c) => {
     const id = c.req.param("id");
     const { text, sourceName } = await c.req.json<{ text: string; sourceName: string }>();
+    if (!text?.trim()) return c.json({ error: "text is required" }, 400);
 
     broadcast("style:start", { bookId: id });
     try {

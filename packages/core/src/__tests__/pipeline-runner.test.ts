@@ -3147,6 +3147,23 @@ describe("PipelineRunner", () => {
     }
   });
 
+  it("imports short style samples with a deterministic guide instead of failing", async () => {
+    const { root, runner, state, bookId } = await createRunnerFixture();
+    const chatSpy = vi.spyOn(llmProvider, "chatCompletion").mockRejectedValue(new Error("should not call llm for short samples"));
+    const sample = "夜雨落在窗台。她没回头，只把那封信压进抽屉。楼下车灯一闪，像有人终于找到了这里。";
+
+    try {
+      const guide = await runner.generateStyleGuide(bookId, sample, "short-snippet");
+
+      expect(chatSpy).not.toHaveBeenCalled();
+      expect(guide).toContain("样本文本较短");
+      await expect(readFile(join(state.bookDir(bookId), "story", "style_profile.json"), "utf-8")).resolves.toContain("short-snippet");
+      await expect(readFile(join(state.bookDir(bookId), "story", "style_guide.md"), "utf-8")).resolves.toContain("样本文本较短");
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
   it("keeps canon import running when style guide extraction fails", async () => {
     const { root, runner, state, bookId } = await createRunnerFixture();
     const parentBookId = "parent-book";

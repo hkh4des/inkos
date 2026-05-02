@@ -2002,8 +2002,9 @@ export class PipelineRunner {
    * Also saves the statistical style_profile.json.
    */
   async generateStyleGuide(bookId: string, referenceText: string, sourceName?: string): Promise<string> {
-    if (referenceText.length < 500) {
-      throw new Error(`Reference text too short (${referenceText.length} chars, minimum 500). Provide at least 2000 chars for reliable style extraction.`);
+    const sample = referenceText.trim();
+    if (!sample) {
+      throw new Error("Reference text is required for style extraction.");
     }
 
     const { analyzeStyle } = await import("../agents/style-analyzer.js");
@@ -2012,14 +2013,28 @@ export class PipelineRunner {
     await mkdir(storyDir, { recursive: true });
 
     // Statistical fingerprint
-    const profile = analyzeStyle(referenceText, sourceName);
+    const profile = analyzeStyle(sample, sourceName);
     await writeFile(join(storyDir, "style_profile.json"), JSON.stringify(profile, null, 2), "utf-8");
 
-    // LLM qualitative extraction
-    const response = await chatCompletion(this.config.client, this.config.model, [
-      {
-        role: "system",
-        content: `你是一位文学风格分析专家。分析参考文本的写作风格，提取可供模仿的定性特征。
+    const book = await this.state.loadBookConfig(bookId);
+    const { profile: gp } = await this.loadGenreProfile(book.genre);
+    const lang = (book.language ?? gp.language) === "en" ? "en" as const : "zh" as const;
+
+    let qualitativeGuide: string;
+    if (sample.length < 500) {
+      qualitativeGuide = this.buildDeterministicStyleGuide(profile, {
+        language: lang,
+        reason: lang === "en"
+          ? `The sample is short (${sample.length} chars), so this guide uses the statistical fingerprint instead of LLM qualitative extraction.`
+          : `样本文本较短（${sample.length}字），本次先使用统计指纹生成文风指南，不强行调用 LLM 做定性拆解。`,
+      });
+    } else {
+      try {
+        // LLM qualitative extraction
+        const response = await chatCompletion(this.config.client, this.config.model, [
+          {
+            role: "system",
+            content: `你是一位文学风格分析专家。分析参考文本的写作风格，提取可供模仿的定性特征。
 
 输出格式（Markdown）：
 ## 叙事声音与语气
@@ -2047,20 +2062,89 @@ export class PipelineRunner {
 （任何值得模仿的个人写作习惯）
 
 分析必须基于原文实际特征，不要泛泛而谈。每个部分用1-2个原文例句佐证。`,
-      },
-      {
-        role: "user",
-        content: `分析以下参考文本的写作风格：\n\n${referenceText.slice(0, 20000)}`,
-      },
-    ], { temperature: 0.3 });
+          },
+          {
+            role: "user",
+            content: `分析以下参考文本的写作风格：\n\n${sample.slice(0, 20000)}`,
+          },
+        ], { temperature: 0.3 });
+        qualitativeGuide = response.content.trim()
+          ? response.content
+          : this.buildDeterministicStyleGuide(profile, {
+              language: lang,
+              reason: lang === "en"
+                ? "The LLM returned empty style analysis; using the statistical fingerprint fallback."
+                : "LLM 未返回有效文风分析，本次使用统计指纹兜底生成文风指南。",
+            });
+      } catch (error) {
+        qualitativeGuide = this.buildDeterministicStyleGuide(profile, {
+          language: lang,
+          reason: lang === "en"
+            ? `LLM qualitative extraction failed: ${error instanceof Error ? error.message : String(error)}. Using the statistical fingerprint fallback.`
+            : `LLM 定性拆解失败：${error instanceof Error ? error.message : String(error)}。本次使用统计指纹兜底生成文风指南。`,
+        });
+      }
+    }
 
-    const book = await this.state.loadBookConfig(bookId);
-    const { profile: gp } = await this.loadGenreProfile(book.genre);
-    const lang = (book.language ?? gp.language) === "en" ? "en" as const : "zh" as const;
     const craftMethodology = buildWritingMethodologySection(lang);
-    const fullStyleGuide = `${response.content}\n\n${craftMethodology}`;
+    const fullStyleGuide = `${qualitativeGuide}\n\n${craftMethodology}`;
     await writeFile(join(storyDir, "style_guide.md"), fullStyleGuide, "utf-8");
     return fullStyleGuide;
+  }
+
+  private buildDeterministicStyleGuide(
+    profile: {
+      readonly avgSentenceLength: number;
+      readonly sentenceLengthStdDev: number;
+      readonly avgParagraphLength: number;
+      readonly vocabularyDiversity: number;
+      readonly topPatterns: ReadonlyArray<string>;
+      readonly rhetoricalFeatures: ReadonlyArray<string>;
+      readonly sourceName?: string;
+    },
+    options: { readonly language: "zh" | "en"; readonly reason: string },
+  ): string {
+    if (options.language === "en") {
+      return [
+        "# Style Guide",
+        "",
+        `> ${options.reason}`,
+        "",
+        "## Statistical Fingerprint",
+        `- Source: ${profile.sourceName ?? "unknown"}`,
+        `- Average sentence length: ${profile.avgSentenceLength}`,
+        `- Sentence length variance: ${profile.sentenceLengthStdDev}`,
+        `- Average paragraph length: ${profile.avgParagraphLength}`,
+        `- Vocabulary diversity: ${Math.round(profile.vocabularyDiversity * 100)}%`,
+        profile.topPatterns.length > 0 ? `- Repeated openings: ${profile.topPatterns.join(", ")}` : "- Repeated openings: none obvious in this sample",
+        profile.rhetoricalFeatures.length > 0 ? `- Rhetorical features: ${profile.rhetoricalFeatures.join(", ")}` : "- Rhetorical features: none obvious in this sample",
+        "",
+        "## How To Use",
+        "- Treat this as a lightweight style fingerprint, not a full imitation bible.",
+        "- Keep sentence and paragraph rhythm close to the sample when drafting.",
+        "- If this guide feels too thin, import a longer excerpt later; the file will be replaced.",
+      ].join("\n");
+    }
+
+    return [
+      "# 文风指南",
+      "",
+      `> ${options.reason}`,
+      "",
+      "## 统计风格指纹",
+      `- 来源：${profile.sourceName ?? "unknown"}`,
+      `- 平均句长：${profile.avgSentenceLength}`,
+      `- 句长波动：${profile.sentenceLengthStdDev}`,
+      `- 平均段落长度：${profile.avgParagraphLength}`,
+      `- 词汇多样性：${Math.round(profile.vocabularyDiversity * 100)}%`,
+      profile.topPatterns.length > 0 ? `- 高频句首/模式：${profile.topPatterns.join("、")}` : "- 高频句首/模式：样本内不明显",
+      profile.rhetoricalFeatures.length > 0 ? `- 修辞特征：${profile.rhetoricalFeatures.join("、")}` : "- 修辞特征：样本内不明显",
+      "",
+      "## 使用方式",
+      "- 这是一份轻量文风指纹，不是完整仿写圣经。",
+      "- 后续写作优先参考句长、段落长度、节奏波动和可见修辞。",
+      "- 如果想得到更稳定的定性拆解，后续可以导入更长片段覆盖本文件。",
+    ].join("\n");
   }
 
   /**
