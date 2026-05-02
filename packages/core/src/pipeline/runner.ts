@@ -612,6 +612,7 @@ export class PipelineRunner {
       `.tmp-book-create-${book.id}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`,
     );
     const stageLanguage = await this.resolveBookLanguage(book);
+    const effectiveExternalContext = options.externalContext ?? this.config.externalContext;
 
     this.logStage(stageLanguage, { zh: "生成基础设定", en: "generating foundation" });
     const { profile: gp } = await this.loadGenreProfile(book.genre);
@@ -620,7 +621,7 @@ export class PipelineRunner {
     const foundation = await this.generateAndReviewFoundation({
       generate: (reviewFeedback) => architect.generateFoundation(
         book,
-        options.externalContext ?? this.config.externalContext,
+        effectiveExternalContext,
         reviewFeedback,
       ),
       reviewer,
@@ -640,17 +641,17 @@ export class PipelineRunner {
         book.language ?? gp.language,
       );
 
-      if (this.config.externalContext && this.config.externalContext.trim().length > 0) {
+      if (effectiveExternalContext && effectiveExternalContext.trim().length > 0) {
         const storyDir = join(stagingBookDir, "story");
         await mkdir(storyDir, { recursive: true });
-        await writeFile(join(storyDir, "brief.md"), this.config.externalContext, "utf-8");
+        await writeFile(join(storyDir, "brief.md"), effectiveExternalContext, "utf-8");
       }
 
       this.logStage(stageLanguage, { zh: "初始化控制文档", en: "initializing control documents" });
       await this.state.ensureControlDocumentsAt(
         stagingBookDir,
         book.language ?? gp.language,
-        options.authorIntent ?? this.config.externalContext,
+        options.authorIntent ?? effectiveExternalContext,
       );
       if (options.currentFocus?.trim()) {
         await writeFile(
@@ -1523,7 +1524,10 @@ export class PipelineRunner {
       wordCount ?? book.chapterWordCount,
       pipelineLang,
     );
-    const { validatePostWrite: postWriteValidate } = await import("../agents/post-write-validator.js");
+    const {
+      normalizePostWriteSurface,
+      validatePostWrite: postWriteValidate,
+    } = await import("../agents/post-write-validator.js");
     const { validateHookLedger } = await import("../utils/hook-ledger-validator.js");
     const { readBookRules } = await import("../agents/rules-reader.js");
     const parsedBookRules = (await readBookRules(bookDir))?.rules ?? null;
@@ -1562,6 +1566,8 @@ export class PipelineRunner {
         lengthSpec,
         chapterIntent: writeInput.chapterIntent,
       }),
+      normalizePostWriteSurface: (chapterContent) =>
+        normalizePostWriteSurface(chapterContent, pipelineLang),
       assertChapterContentNotEmpty: (content, stage) =>
         this.assertChapterContentNotEmpty(content, chapterNumber, stage),
       addUsage: PipelineRunner.addUsage,
@@ -1613,7 +1619,7 @@ export class PipelineRunner {
         });
         totalUsage = PipelineRunner.addUsage(totalUsage, polishOutput.tokenUsage);
         if (polishOutput.changed && polishOutput.polishedContent.trim().length > 0) {
-          finalContent = polishOutput.polishedContent;
+          finalContent = normalizePostWriteSurface(polishOutput.polishedContent, pipelineLang);
           finalWordCount = countChapterLength(finalContent, lengthSpec.countingMode);
         }
       } catch (error) {

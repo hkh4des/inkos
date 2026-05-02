@@ -11,6 +11,7 @@ import { readGenreProfile, readBookRules } from "./rules-reader.js";
 import {
   detectCrossChapterRepetition,
   detectParagraphLengthDrift,
+  normalizePostWriteSurface,
   validatePostWrite,
   type PostWriteViolation,
 } from "./post-write-validator.js";
@@ -358,12 +359,14 @@ export class WriterAgent extends BaseAgent {
       : [];
 
     // ── Post-write validation (regex + rule-based, zero LLM cost) ──
+    const surfaceNormalizedContent = normalizePostWriteSurface(creative.content, resolvedLanguage);
+    const surfaceNormalizedWordCount = countChapterLength(surfaceNormalizedContent, resolvedLengthSpec.countingMode);
     const ruleViolations = [
-      ...validatePostWrite(creative.content, genreProfile, bookRules, resolvedLanguage),
-      ...detectCrossChapterRepetition(creative.content, fingerprintChapters, resolvedLanguage),
-      ...detectParagraphLengthDrift(creative.content, fingerprintChapters, resolvedLanguage),
+      ...validatePostWrite(surfaceNormalizedContent, genreProfile, bookRules, resolvedLanguage),
+      ...detectCrossChapterRepetition(surfaceNormalizedContent, fingerprintChapters, resolvedLanguage),
+      ...detectParagraphLengthDrift(surfaceNormalizedContent, fingerprintChapters, resolvedLanguage),
     ];
-    const aiTellIssues = analyzeAITells(creative.content, resolvedLanguage).issues;
+    const aiTellIssues = analyzeAITells(surfaceNormalizedContent, resolvedLanguage).issues;
 
     const postWriteErrors = ruleViolations.filter(v => v.severity === "error");
     const postWriteWarnings = ruleViolations.filter(v => v.severity === "warning");
@@ -406,8 +409,8 @@ export class WriterAgent extends BaseAgent {
     return {
       chapterNumber,
       title: creative.title,
-      content: creative.content,
-      wordCount: creative.wordCount,
+      content: surfaceNormalizedContent,
+      wordCount: surfaceNormalizedWordCount,
       preWriteCheck: creative.preWriteCheck,
       postSettlement: settlement.postSettlement,
       runtimeStateDelta: resolvedRuntimeStateDelta,

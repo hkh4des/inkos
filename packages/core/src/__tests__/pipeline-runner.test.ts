@@ -491,6 +491,8 @@ describe("PipelineRunner", () => {
         .resolves.toContain("冷硬、克制、利益驱动");
       await expect(readFile(join(storyDir, "current_focus.md"), "utf-8"))
         .resolves.toContain("旧账线和港口势力网");
+      await expect(readFile(join(storyDir, "brief.md"), "utf-8"))
+        .resolves.toContain("近未来港口城");
     } finally {
       await rm(root, { recursive: true, force: true });
     }

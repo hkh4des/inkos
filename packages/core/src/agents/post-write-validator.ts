@@ -16,6 +16,26 @@ export interface PostWriteViolation {
   readonly suggestion: string;
 }
 
+export function normalizePostWriteSurface(
+  content: string,
+  languageOverride?: "zh" | "en",
+): string {
+  let normalized = stripPostWriteMetaLines(content);
+  if (languageOverride !== "en") {
+    normalized = normalized.replace(/——+/g, "，");
+  }
+  return normalized.trimEnd();
+}
+
+function stripPostWriteMetaLines(content: string): string {
+  const lines = content.split(/\r?\n/);
+  const filtered = lines.filter((line) =>
+    !/^\s*\[(?:polisher|writer|reviser|reviewer)-note\]\s*/i.test(line)
+    && !/^\s*\[(?:润色|写作|修订|审稿)备注\]\s*/.test(line)
+  );
+  return filtered.join("\n");
+}
+
 interface ParagraphShape {
   readonly paragraphs: ReadonlyArray<string>;
   readonly shortThreshold: number;

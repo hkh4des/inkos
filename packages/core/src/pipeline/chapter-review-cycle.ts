@@ -88,6 +88,7 @@ export async function runChapterReviewCycle(params: {
     applied: boolean;
     tokenUsage?: ChapterReviewCycleUsage;
   }>;
+  readonly normalizePostWriteSurface?: (chapterContent: string) => string;
   readonly assertChapterContentNotEmpty: (content: string, stage: string) => void;
   readonly addUsage: (
     left: ChapterReviewCycleUsage,
@@ -142,8 +143,8 @@ export async function runChapterReviewCycle(params: {
   };
 
   const normalizedBeforeAudit = await normalizeUntilInRange(finalContent);
-  finalContent = normalizedBeforeAudit.content;
-  finalWordCount = normalizedBeforeAudit.wordCount;
+  finalContent = params.normalizePostWriteSurface?.(normalizedBeforeAudit.content) ?? normalizedBeforeAudit.content;
+  finalWordCount = countChapterLength(finalContent, params.lengthSpec.countingMode);
   normalizeApplied = normalizeApplied || normalizedBeforeAudit.applied;
   params.assertChapterContentNotEmpty(finalContent, "draft generation");
 
@@ -246,7 +247,7 @@ export async function runChapterReviewCycle(params: {
       }
 
       params.assertChapterContentNotEmpty(reviseOutput.revisedContent, `repair iteration ${iteration + 1}`);
-      const revisedContent = reviseOutput.revisedContent;
+      const revisedContent = params.normalizePostWriteSurface?.(reviseOutput.revisedContent) ?? reviseOutput.revisedContent;
       const revisedWordCount = countChapterLength(revisedContent, params.lengthSpec.countingMode);
 
       // Re-assess revised content. If REVISED_CONTENT drifted on length,
@@ -317,7 +318,7 @@ export async function runChapterReviewCycle(params: {
   return {
     finalContent,
     finalWordCount,
-    preAuditNormalizedWordCount: normalizedBeforeAudit.wordCount,
+    preAuditNormalizedWordCount: finalWordCount,
     revised: snapshots.length > 1 && finalContent !== params.initialOutput.content,
     auditResult: currentAudit.auditResult,
     totalUsage,

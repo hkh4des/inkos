@@ -196,4 +196,40 @@ describe("runChapterReviewCycle v9", () => {
     expect(result.auditResult.overallScore).toBe(88);
     expect(result.revised).toBe(false);
   });
+
+  it("normalizes deterministic surface blockers before audit and repair", async () => {
+    const auditChapter = vi.fn()
+      .mockResolvedValue(createAuditResult({ overallScore: 90, passed: true }));
+    const reviseChapter = vi.fn();
+    const normalizeDraftLengthIfNeeded = vi.fn()
+      .mockImplementation(async (content: string) => ({
+        content,
+        wordCount: content.length,
+        applied: false,
+        tokenUsage: ZERO_USAGE,
+      }));
+    const unsafe = `${"雨".repeat(100)}——${"夜".repeat(98)}`;
+
+    const result = await runChapterReviewCycle({
+      ...baseParams,
+      initialOutput: {
+        content: unsafe,
+        wordCount: unsafe.length,
+        postWriteErrors: [],
+      },
+      createReviser: () => ({ reviseChapter }),
+      auditor: { auditChapter },
+      normalizeDraftLengthIfNeeded,
+      normalizePostWriteSurface: (content) => content.replace(/——+/g, "，"),
+      runPostWriteChecks: (content) =>
+        content.includes("——")
+          ? [{ severity: "critical" as const, category: "禁止破折号", description: "出现了破折号", suggestion: "用逗号断句" }]
+          : [],
+    });
+
+    expect(auditChapter.mock.calls[0]?.[1]).not.toContain("——");
+    expect(result.finalContent).not.toContain("——");
+    expect(result.auditResult.passed).toBe(true);
+    expect(reviseChapter).not.toHaveBeenCalled();
+  });
 });

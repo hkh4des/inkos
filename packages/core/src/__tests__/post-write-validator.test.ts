@@ -4,6 +4,7 @@ import {
   detectParagraphLengthDrift,
   detectParagraphShapeWarnings,
   resolveDuplicateTitle,
+  normalizePostWriteSurface,
   validatePostWrite,
   type PostWriteViolation,
 } from "../agents/post-write-validator.js";
@@ -28,6 +29,19 @@ function findRule(violations: ReadonlyArray<PostWriteViolation>, rule: string): 
 }
 
 describe("validatePostWrite", () => {
+  it("strips model-side post-write note lines before persistence", () => {
+    const content = [
+      "他把U盘攥进手心，回头看了一眼档案室的黑窗。",
+      "",
+      "[polisher-note] 无。",
+      "[writer-note] 这里需要后续补伏笔。",
+    ].join("\n");
+
+    const normalized = normalizePostWriteSurface(content);
+
+    expect(normalized).toBe("他把U盘攥进手心，回头看了一眼档案室的黑窗。");
+  });
+
   it("returns no violations for clean content", () => {
     const content = "他走过去，端起杯子，灌了一口。外面的雨越下越大。\n\n她站在窗前，看着街上的行人匆匆走过。";
     const result = validatePostWrite(content, baseProfile, null);
